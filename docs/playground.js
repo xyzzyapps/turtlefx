@@ -96,18 +96,6 @@ end`
   let parsedProgram = null;
   let startTime = performance.now();
 
-  // --- Copy buttons ---
-  document.querySelectorAll(".copy-btn").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      const code = btn.closest(".code-box").querySelector("pre code").textContent;
-      navigator.clipboard.writeText(code).then(() => {
-        const prev = btn.textContent;
-        btn.textContent = "Copied!";
-        setTimeout(() => (btn.textContent = prev), 1200);
-      });
-    });
-  });
-
   // --- Tokenizer & Parser ---
   function tokenize(src) {
     const tokens = [];

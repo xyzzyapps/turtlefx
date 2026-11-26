@@ -3,19 +3,22 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>TurtleFX — Code Games &amp; Shaders with Modern Logo</title>
+  <title>TurtleFX — Code Retro, 2D &amp; 3D Games with Modern Logo</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Space+Grotesk:wght@600;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
   <nav class="topbar">
     <div class="container nav-inner">
-      <a class="brand" href="#top">🐢 TurtleFX</a>
+      <a class="brand" href="#top"><span class="brand-mark" aria-hidden="true"></span>TurtleFX</a>
       <div class="nav-links">
         <a href="#playground">Playground</a>
         <a href="#mission-1">Missions</a>
         <a href="#cheatsheet">Cheat Sheet</a>
         <a href="language.html">Language Docs</a>
-        <a href="#install">Install C Engine</a>
+        <a href="#install">Install</a>
         <a class="gh-pill" href="https://github.com/xyzzyapps/turtlefx" target="_blank" rel="noopener">GitHub ↗</a>
       </div>
     </div>
@@ -23,39 +26,41 @@
 
   <header id="top" class="hero">
     <div class="container hero-grid">
-      <div class="hero-copy">
-        <div class="badge">Made with Gemini Neon • C + raylib + OpenGL 3.3</div>
-        <h1>Build <span class="grad">Retro, 2D &amp; 3D</span> Games Without Writing Scary Shader Math</h1>
+      <div>
+        <div class="kicker">C11 + raylib 5.5 + OpenGL 3.3 • Made with Gemini Neon</div>
+        <h1>Build <em>Retro, 2D &amp; 3D</em> Games Without Writing Shader Math</h1>
         <p class="lead">
-          Shaders are what make games glow, bend, and render 3D worlds at 60 FPS—but raw GLSL math is brutal.
-          <strong>TurtleFX</strong> lets you drive a GPU shader engine using <strong>Modern Logo</strong>: simple commands like
+          GPU shaders make games glow, bend, and raymarch 3D worlds at 60 FPS — but raw GLSL math is steep.
+          <strong>TurtleFX</strong> lets you drive a hidden shader pipeline with <strong>Modern Logo</strong>: readable commands like
           <code>fd 50</code>, <code>rt 90</code>, and <code>fx bloom(...)</code>.
         </p>
         <div class="hero-actions">
-          <a class="btn primary" href="#playground">Try It Live in Browser ↓</a>
-          <a class="btn secondary" href="#mission-1">Start Mission 1</a>
-          <a class="btn secondary" href="language.html">Full Language Docs →</a>
+          <a class="btn primary" href="#playground">Open Browser Sandbox ↓</a>
+          <a class="btn secondary" href="#mission-1">Start Mission 01</a>
+          <a class="btn secondary" href="language.html">Language Spec →</a>
         </div>
       </div>
       <div class="hero-media">
-        <img src="assets/screenshot.png" alt="TurtleFX running Retro Arcade, Neon 2D, 3D Raymarching, and GameBoy 3D" />
-        <p class="caption">All 4 modes running on TurtleFX: Retro PICO-8, Neon 2D Bloom, 3D SDF Raymarching, and GameBoy 3D.</p>
+        <figure>
+          <img src="assets/screenshot.png" alt="TurtleFX running Retro Arcade, Neon 2D, 3D Raymarching, and GameBoy 3D" />
+          <figcaption class="caption">Fig. 1 — Retro PICO-8 combat, Neon 2D SDF bloom, 3D SDF raymarching, and GameBoy Bayer-dithered 3D.</figcaption>
+        </figure>
       </div>
     </div>
   </header>
 
   <main class="container">
-    <!-- INTERACTIVE PLAYGROUND -->
-    <section id="playground" class="card playground-section">
+    <!-- LIVE BROWSER SANDBOX -->
+    <section id="playground" class="band">
       <div class="section-head">
         <div>
-          <span class="tag">LIVE SANDBOX</span>
-          <h2>Try Modern Logo Right Now</h2>
-          <p>Edit the code on the left and watch the turtle draw in real time. No install needed for 2D &amp; Retro!</p>
+          <div class="section-index">00 / LIVE SANDBOX</div>
+          <h2>Try Modern Logo in Your Browser</h2>
+          <p>Edit the code on the left and watch the turtle draw live at 60 FPS. No install needed for 2D &amp; Retro.</p>
         </div>
-        <div class="preset-row">
+        <div class="preset-row" role="tablist" aria-label="Sandbox presets">
           <button class="preset-btn active" data-preset="star">Neon Star</button>
-          <button class="preset-btn" data-preset="spiral">Rainbow Spiral</button>
+          <button class="preset-btn" data-preset="spiral">Spiral</button>
           <button class="preset-btn" data-preset="ship">Retro Ship</button>
           <button class="preset-btn" data-preset="mandala">Mandala</button>
         </div>
@@ -66,7 +71,7 @@
           <textarea id="code-editor" spellcheck="false" aria-label="Logo code editor"></textarea>
           <div class="editor-bar">
             <span id="pg-status" class="status-ok">Running at 60 FPS</span>
-            <button id="reset-btn" class="btn small">Reset Preset</button>
+            <button id="reset-btn" class="btn small">Reset</button>
           </div>
         </div>
         <div class="canvas-wrap">
@@ -76,14 +81,12 @@
     </section>
 
     <!-- MISSION 1 -->
-    <section id="mission-1" class="mission">
-      <div class="mission-num">MISSION 01</div>
-      <h2>Think Like a Turtle (Not a Math Textbook)</h2>
+    <section id="mission-1" class="band">
+      <div class="section-index">01 / THINK LIKE A TURTLE</div>
+      <h2>Push-Based Drawing Over Pull-Based Shaders</h2>
       <p>
-        Normally, GPU shaders make you think <em>backwards</em>: for every single pixel on the screen, you write equations to figure out what color it should be.
-      </p>
-      <p>
-        <strong>Logo flips that around.</strong> You control an invisible robot turtle holding a pen. You tell it where to walk and turn, and TurtleFX translates your steps into GPU shaders automatically.
+        Normally, GPU shaders make you think <em>backwards</em>: for every single pixel on screen, you write distance equations to figure out its color.
+        <strong>Logo flips that around.</strong> You steer an invisible robot turtle holding a pen, and TurtleFX translates your commands into GPU Signed Distance Fields automatically.
       </p>
 
       <div class="two-col">
@@ -104,31 +107,29 @@ on frame(dt)
   ]
 end</code></pre>
         </div>
-        <div class="callout">
-          <h3>What each line does</h3>
+        <div class="note-block">
+          <h3>Line-by-Line Breakdown</h3>
           <ul>
-            <li><code>mode 2d</code> — Turns on smooth, anti-aliased vector graphics.</li>
-            <li><code>fx bloom(...)</code> — Tells the hidden GPU shader to add a neon glow.</li>
-            <li><code>on frame(dt)</code> — Runs 60 times every second to draw each frame.</li>
-            <li><code>repeat 4 [ ... ]</code> — Repeats everything inside <code>[ ]</code> four times!</li>
-            <li><code>fd 80</code> / <code>rt 90</code> — Move <strong>f</strong>orwar<strong>d</strong> 80 units, turn <strong>r</strong>igh<strong>t</strong> 90°.</li>
+            <li><code>mode 2d</code> — Enables smooth, anti-aliased vector rendering.</li>
+            <li><code>fx bloom(...)</code> — Tells the hidden GPU shader to run 2-pass glow.</li>
+            <li><code>on frame(dt)</code> — Runs 60 times per second to emit each frame.</li>
+            <li><code>repeat 4 [ ... ]</code> — Loops everything inside <code>[ ]</code> four times.</li>
+            <li><code>fd 80</code> / <code>rt 90</code> — Move forward 80 units, turn right 90°.</li>
           </ul>
           <div class="challenge">
-            <strong>⚡ Quick Challenge:</strong> Change <code>repeat 4</code> to <code>repeat 5</code> and <code>rt 90</code> to <code>rt 144</code> in the playground above. What shape do you get?
+            <strong>Challenge:</strong> Change <code>repeat 4</code> to <code>repeat 5</code> and <code>rt 90</code> to <code>rt 144</code> in the sandbox above to draw a 5-point star.
           </div>
         </div>
       </div>
     </section>
 
     <!-- MISSION 2 -->
-    <section id="mission-2" class="mission">
-      <div class="mission-num">MISSION 02</div>
-      <h2>Animation, Color &amp; <code>branch [ ... ]</code></h2>
+    <section id="mission-2" class="band">
+      <div class="section-index">02 / MOTION &amp; BRANCHING</div>
+      <h2>Animation, Rainbow Color &amp; <code>branch [ ... ]</code></h2>
       <p>
-        Static drawings are cool, but games move! TurtleFX gives you a built-in <code>time</code> variable (seconds since start) and math waves like <code>sin(time)</code> that smoothly bounce between <code>-1</code> and <code>1</code>.
-      </p>
-      <p>
-        Even better: <code>branch [ ... ]</code> saves the turtle's position and angle before running a block, then snaps it right back when the block ends. That means you can draw a spinning wing or tree branch without messing up the rest of your drawing!
+        TurtleFX exposes a live <code>time</code> variable (seconds since start) and wave functions like <code>sin(time)</code>.
+        Wrap any sub-drawing in <code>branch [ ... ]</code> to save the turtle's position, angle, and color before entering — and automatically restore them on exit.
       </p>
 
       <div class="two-col">
@@ -139,11 +140,11 @@ fx bloom(strength: 0.6)
 
 on frame(dt)
   clear #06070d
-  rt time * 40           ; spin the whole wheel!
+  rt time * 40           ; spin the whole wheel
 
   repeat 12 with i [
     branch [
-      rt i * 30          ; 12 spokes, 30° apart
+      rt i * 30          ; 12 spokes, 30 deg apart
       color hsl(i * 30 + time * 80, 100%, 60%)
       glow 0.7
       fd 70 + sin(time * 4 + i) * 25
@@ -152,73 +153,67 @@ on frame(dt)
   ]
 end</code></pre>
         </div>
-        <div class="callout">
-          <h3>Pro Tricks Unlocked</h3>
+        <div class="note-block">
+          <h3>Key Ideas</h3>
           <ul>
-            <li><code>repeat 12 with i</code> — Gives you a counter <code>i</code> from <code>0</code> to <code>11</code>.</li>
-            <li><code>hsl(hue, 100%, 60%)</code> — Cycles through the entire rainbow using degrees (<code>0</code>–<code>360</code>).</li>
-            <li><code>branch [ ... ]</code> — Every spoke starts from the center because <code>branch</code> restores the turtle!</li>
-            <li><code>dot 8</code> — Stamps a glowing circle of radius 8 at the tip.</li>
+            <li><code>repeat 12 with i</code> — Binds loop index <code>i</code> from <code>0</code> to <code>11</code>.</li>
+            <li><code>hsl(hue, 100%, 60%)</code> — Cycles through the color wheel in degrees.</li>
+            <li><code>branch [ ... ]</code> — Every spoke starts cleanly at the origin without manual backtracking.</li>
+            <li><code>dot 8</code> — Stamps a glowing circle of radius 8 at the spoke tip.</li>
           </ul>
         </div>
       </div>
     </section>
 
     <!-- MISSION 3 -->
-    <section id="mission-3" class="mission">
-      <div class="mission-num">MISSION 03</div>
-      <h2>Build a Retro Space Shooter (Lists &amp; Collisions)</h2>
+    <section id="mission-3" class="band">
+      <div class="section-index">03 / ARCADE GAMEPLAY</div>
+      <h2>Lists, Hitboxes &amp; Destroying Enemies</h2>
       <p>
-        To destroy enemy ships in a game, you need two things: <strong>memory</strong> (which enemies are still alive?) and <strong>hitboxes</strong> (did my laser touch an enemy?).
-      </p>
-      <p>
-        In TurtleFX, you store multiple values in a <strong>list</strong> like <code>let enemy_alive = [1, 1, 1, 1, 1, 1]</code>, and read or change item <code>i</code> using <code>enemy_alive[i]</code>.
+        Real games need persistent state across frames. Declare a 1D list like <code>let enemy_alive = [1, 1, 1, 1, 1, 1]</code>,
+        read or mutate element <code>i</code> with <code>enemy_alive[i]</code>, and test hitboxes using <code>abs(...)</code>.
       </p>
 
-      <div class="code-box">
-        <div class="code-title">The Hit-Detection Loop from 01_retro_arcade.logo <button class="copy-btn">Copy</button></div>
+      <div class="two-col">
+        <div class="code-box">
+          <div class="code-title">Hit Detection in 01_retro_arcade.logo <button class="copy-btn">Copy</button></div>
 <pre><code>; 1 = alive, 0 = destroyed
 let enemy_alive = [1, 1, 1, 1, 1, 1]
 
 ; Inside on frame(dt):
 if enemy_alive[i] == 1 [
-  if abs(laser_x - ex) &lt; 9 and abs(laser_y - ey) &lt; 8 [
-    enemy_alive[i] = 0    ; destroy this enemy!
-    laser_y = -20         ; reset the laser
-    boom_t[i] = 0.35      ; trigger a 0.35s turtle explosion!
+  if abs(bolt_x[b] - ex) &lt; 9 and abs(bolt_y[b] - ey) &lt; 8 [
+    enemy_alive[i] = 0    ; destroy this enemy
+    bolt_y[b] = -20       ; consume the laser
+    boom_t[i] = 0.35      ; start radial turtle explosion
   ]
 ]</code></pre>
-      </div>
-
-      <div class="callout">
-        <h3>Why <code>abs(laser_x - ex) &lt; 9</code> works</h3>
-        <p>
-          <code>abs(...)</code> means <em>absolute value</em> (distance without caring about left/right sign).
-          So <code>abs(laser_x - ex) &lt; 9</code> simply asks: <strong>"Is the laser within 9 pixels of the enemy horizontally?"</strong>
-          If it's also within 8 pixels vertically, <em>BOOM!</em>
-        </p>
+        </div>
+        <div class="note-block">
+          <h3>Why <code>abs(bolt_x[b] - ex) &lt; 9</code> Works</h3>
+          <p>
+            <code>abs(...)</code> computes absolute distance without caring whether the bolt is left or right of the enemy.
+            Checking both X (&lt; 9 px) and Y (&lt; 8 px) forms a fast axis-aligned bounding box (AABB) collision check.
+          </p>
+        </div>
       </div>
     </section>
 
     <!-- MISSION 4 -->
-    <section id="mission-4" class="mission">
-      <div class="mission-num">MISSION 04</div>
-      <h2>Go 3D (And Turn It Into a GameBoy!)</h2>
+    <section id="mission-4" class="band">
+      <div class="section-index">04 / 3D WORLDS &amp; RETRO CROSSOVER</div>
+      <h2>Switch to 3D SDF Raymarching (or GameBoy 3D)</h2>
       <p>
-        Ready for 3D? You already know how! Just switch to <code>mode 3d</code> and add 3D turns:
-        <code>pitch</code> (nose up/down), <code>yaw</code> (turn left/right), and <code>roll</code> (barrel roll).
-      </p>
-      <p>
-        Under the hood, TurtleFX switches to a <strong>3D SDF Raymarching Shader</strong>—which gives you soft shadows, glowing crystals, smooth clay blending (<code>smooth</code>), and boolean hole-carving (<code>carve</code>).
+        Switch to <code>mode 3d</code> and add airplane-style turns: <code>pitch</code> (nose up/down), <code>yaw</code> (left/right), and <code>roll</code> (barrel roll).
+        TurtleFX switches to a 3D SDF raymarcher supporting clay blending (<code>smooth</code>), boolean holes (<code>carve</code>), and soft shadows.
       </p>
 
       <div class="two-col">
         <div class="code-box">
-          <div class="code-title">Carve a Doorway &amp; Grow a 3D Crystal Tree <button class="copy-btn">Copy</button></div>
+          <div class="code-title">Carve a 3D Archway <button class="copy-btn">Copy</button></div>
 <pre><code>mode 3d
 fx bloom(strength: 0.55)
 
-; Stone arch with a carved-out doorway
 at -2 1.4 0 [
   material matte(#94a3b8)
   box(2.1, 2.5, 0.85)
@@ -228,20 +223,23 @@ at -2 1.4 0 [
 ]</code></pre>
         </div>
         <div class="code-box">
-          <div class="code-title">The 2-Line Retro GameBoy 3D Trick <button class="copy-btn">Copy</button></div>
-<pre><code>; Add these 2 lines to ANY 3D scene!
+          <div class="code-title">2-Line GameBoy 3D Mode <button class="copy-btn">Copy</button></div>
+<pre><code>; Add these 2 lines to ANY 3D scene:
 fx retro(320, 180, dither: bayer, palette: gameboy)
 fx fog(color: #0f380f, near: 8, far: 22)
 
-; Because all shaders share one post-FX pipeline,
-; your 3D world instantly becomes dithered handheld 3D!</code></pre>
+; Shared Post-FX renders your 3D raymarching
+; at 320x180 with 4x4 Bayer dithering!</code></pre>
         </div>
       </div>
+      <p class="small-note">
+        Want the full turtle steering guide and shader internals? Read the <a href="language.html">Complete Single-Page Language Specification →</a>
+      </p>
     </section>
 
     <!-- CHEAT SHEET -->
-    <section id="cheatsheet" class="card">
-      <span class="tag">REFERENCE</span>
+    <section id="cheatsheet" class="band">
+      <div class="section-index">05 / QUICK REFERENCE</div>
       <h2>Modern Logo Cheat Sheet</h2>
       <div class="cheat-grid">
         <div>
@@ -249,7 +247,7 @@ fx fog(color: #0f380f, near: 8, far: 22)
           <ul>
             <li><code>fd 50</code> / <code>bk 50</code> — forward / back</li>
             <li><code>rt 90</code> / <code>lt 90</code> — right / left</li>
-            <li><code>pu</code> / <code>pd</code> — pen up / pen down</li>
+            <li><code>pu</code> / <code>pd</code> — pen up / down</li>
             <li><code>pitch</code> / <code>yaw</code> / <code>roll</code> — 3D turns</li>
           </ul>
         </div>
@@ -257,8 +255,8 @@ fx fog(color: #0f380f, near: 8, far: 22)
           <h4>Shapes &amp; Style</h4>
           <ul>
             <li><code>dot 10</code>, <code>rect 20 10</code></li>
-            <li><code>fill [ ... ]</code> — filled polygon</li>
-            <li><code>color #ff004d</code> or <code>hsl(h, s, l)</code></li>
+            <li><code>fill [ ... ]</code> — concave polygon</li>
+            <li><code>color #ff004d</code>, <code>hsl(h, s, l)</code></li>
             <li><code>pen_width 3</code>, <code>glow 0.8</code></li>
           </ul>
         </div>
@@ -267,14 +265,14 @@ fx fog(color: #0f380f, near: 8, far: 22)
           <ul>
             <li><code>sphere(r)</code>, <code>box(w, h, d)</code></li>
             <li><code>capsule(len, r)</code>, <code>torus(R, r)</code></li>
-            <li><code>smooth 0.5 [ ... ]</code> — clay blend</li>
-            <li><code>carve [ ... ]</code> — subtract shapes</li>
+            <li><code>smooth 0.5 [ ... ]</code> — blend</li>
+            <li><code>carve [ ... ]</code> — subtract</li>
           </ul>
         </div>
         <div>
-          <h4>Logic &amp; Input</h4>
+          <h4>State &amp; Control</h4>
           <ul>
-            <li><code>let x = 10</code>, <code>let arr = [1, 2, 3]</code></li>
+            <li><code>let x = 10</code>, <code>let a = [1, 2]</code></li>
             <li><code>if key("space") [ ... ]</code></li>
             <li><code>repeat 8 with i [ ... ]</code></li>
             <li><code>branch [ ... ]</code>, <code>at x y [ ... ]</code></li>
@@ -284,24 +282,23 @@ fx fog(color: #0f380f, near: 8, far: 22)
     </section>
 
     <!-- INSTALL -->
-    <section id="install" class="card install-card">
-      <span class="tag">FULL ENGINE</span>
-      <h2>Run the Full C + raylib Engine (3D, CRT &amp; Hot-Reload)</h2>
+    <section id="install" class="band">
+      <div class="section-index">06 / NATIVE C ENGINE</div>
+      <h2>Build the Full C11 + raylib Engine</h2>
       <p>
-        The browser sandbox above runs 2D &amp; Retro Logo directly on HTML5 Canvas.
-        To unlock <strong>3D SDF Raymarching</strong>, <strong>CRT shaders</strong>, <strong>GameBoy dithering</strong>, and <strong>live hot-reload</strong>, clone and build the C11 + raylib engine:
+        Unlock 3D SDF raymarching, CRT curvature, GameBoy dithering, and live file hot-reloading by building the native desktop binary:
       </p>
       <div class="code-box">
-        <div class="code-title">Build &amp; Run with CMake <button class="copy-btn">Copy</button></div>
-<pre><code>git clone https://github.com/xyzzyapps/turtlefx.git
+        <div class="code-title">Build &amp; Run with CMake + Ninja <button class="copy-btn">Copy</button></div>
+<pre><code data-lang="sh">git clone https://github.com/xyzzyapps/turtlefx.git
 cd turtlefx
 cmake -B build -G Ninja
 cmake --build build
 .\build\turtlefx.exe</code></pre>
       </div>
       <p class="small-note">
-        Press <strong>1–4</strong> to switch examples, <strong>Arrow Keys / Space</strong> to play Retro Arcade,
-        <strong>F12</strong> to snap a screenshot, and edit any <code>.logo</code> file to watch it hot-reload!
+        Press <strong>1–4</strong> to switch examples, <strong>Arrows / Space</strong> to play Retro Arcade,
+        <strong>F12</strong> to save a screenshot, and edit any <code>.logo</code> file to hot-reload live.
       </p>
     </section>
   </main>
@@ -309,10 +306,11 @@ cmake --build build
   <footer class="footer">
     <div class="container footer-inner">
       <span><strong>TurtleFX</strong> — Made with Gemini Neon • Copyright © 2026 Xyzzy Apps</span>
-      <span>Licensed under <a href="https://github.com/xyzzyapps/turtlefx/blob/main/LICENSE" target="_blank" rel="noopener">PolyForm Noncommercial 1.0.0</a></span>
+      <span><a href="language.html">Language Docs</a> · <a href="https://github.com/xyzzyapps/turtlefx/blob/main/LICENSE" target="_blank" rel="noopener">PolyForm Noncommercial 1.0.0</a></span>
     </div>
   </footer>
 
+  <script src="enhance.js"></script>
   <script src="playground.js"></script>
 </body>
 </html>
