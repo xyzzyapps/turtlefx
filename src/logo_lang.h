@@ -126,6 +126,12 @@ typedef struct {
     float fog_near;
     float fog_far;
 
+    /* Optional user-authored GLSL 330 fragment shader (file path OR inline multiline source) */
+    bool custom_shader_enabled;
+    char custom_shader_path[256];
+    const char *custom_shader_code;
+    float custom_params[4];
+
     /* 3D Camera & Light */
     float cam_pos[3];
     float cam_look[3];
@@ -161,6 +167,7 @@ typedef struct {
     float vec[LOGO_MAX_LIST]; /* COLOR (rgba), VEC3 (xyz), or numeric list */
     int list_len;
     char str[64];
+    const char *long_str;     /* Non-NULL for multiline / long string literals owned by AST */
 } LogoVal;
 
 /* ----------------------------------------------------------------------------
@@ -200,7 +207,10 @@ struct Expr {
     union {
         double num;
         float color[4];
-        char str[64];
+        struct {
+            char small[64];
+            char *heap; /* non-NULL for multiline """...""" strings */
+        } str;
         char ident[LOGO_MAX_IDENT];
         struct {
             Expr **items;
@@ -317,6 +327,7 @@ typedef struct {
 typedef struct {
     bool (*is_key_down)(const char *key_name);
     bool (*is_key_pressed)(const char *key_name);
+    void (*play_sound)(const char *path, float volume, float pitch);
     float mouse_x;
     float mouse_y;
     int view_w;

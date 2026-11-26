@@ -3,6 +3,7 @@
 
 #include "logo_lang.h"
 #include <raylib.h>
+#include <time.h>
 
 typedef struct {
     Shader sh_2d;
@@ -10,6 +11,14 @@ typedef struct {
     Shader sh_bloom_extract;
     Shader sh_blur;
     Shader sh_post;
+
+    /* Optional hot-reloaded user custom fragment shader (file or inline multiline GLSL) */
+    Shader sh_custom;
+    char custom_path[256];
+    time_t custom_mtime;
+    uint64_t custom_code_hash;
+    bool custom_is_inline;
+    double custom_check_t;
 
     /* 1x1 white quad texture for triggering fullscreen fragment shaders */
     Texture2D white_tex;
@@ -24,6 +33,9 @@ typedef struct {
     RenderTexture2D scene_rt;
     int scene_rt_w, scene_rt_h;
 
+    RenderTexture2D post_rt;
+    int post_rt_w, post_rt_h;
+
     RenderTexture2D bloom_a;
     RenderTexture2D bloom_b;
     int bloom_w, bloom_h;
@@ -31,7 +43,7 @@ typedef struct {
 
 void renderer_init(LogoRenderer *r);
 void renderer_shutdown(LogoRenderer *r);
-void renderer_draw(LogoRenderer *r, const SceneIR *scene, int screen_w, int screen_h);
-void renderer_draw_to(LogoRenderer *r, const SceneIR *scene, int w, int h, const RenderTexture2D *target);
+void renderer_draw(LogoRenderer *r, const SceneIR *scene, int screen_w, int screen_h, double time_sec);
+void renderer_draw_to(LogoRenderer *r, const SceneIR *scene, int w, int h, double time_sec, const RenderTexture2D *target);
 
 #endif /* RENDERER_H */

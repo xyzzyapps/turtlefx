@@ -1,0 +1,69 @@
+; Example 5: Inline Custom GLSL Shader using Multiline Strings (""" ... """)
+; You can write shaders right inside your .logo file — OR load an external file
+; like: fx shader("examples/ripple.fs", amount: 0.012, speed: 4.5, scale: 22.0)
+
+mode 2d
+fx bloom(strength: 0.45, radius: 10)
+fx vignette(0.3)
+
+let ripple_glsl = """
+#version 330
+in vec2 fragTexCoord;
+out vec4 finalColor;
+
+uniform sampler2D texture0;
+uniform vec2 uResolution;
+uniform float uTime;
+uniform vec4 uParams;   // (amount, speed, scale, mix)
+
+void main() {
+    float amount = (uParams.x > 0.0) ? uParams.x : 0.012;
+    float speed  = (uParams.y > 0.0) ? uParams.y : 3.5;
+    float scale  = (uParams.z > 0.0) ? uParams.z : 18.0;
+
+    vec2 uv = fragTexCoord;
+    vec2 center = uv - 0.5;
+    float dist = length(center);
+
+    float wave = sin(dist * scale - uTime * speed) * amount;
+    vec2 dir = (dist > 0.001) ? (center / dist) : vec2(0.0);
+    vec2 warped = uv + dir * wave;
+
+    // Chromatic RGB split along the ripple
+    float shift = abs(wave) * 0.9;
+    float r = texture(texture0, warped + dir * shift).r;
+    float g = texture(texture0, warped).g;
+    float b = texture(texture0, warped - dir * shift).b;
+    finalColor = vec4(r, g, b, 1.0);
+}
+"""
+
+on frame(dt)
+  clear #070912
+
+  ; Pass live Logo expressions directly into your inline GLSL shader!
+  let pulse = 0.009 + sin(time * 2.0) * 0.005
+  fx shader(ripple_glsl, amount: pulse, speed: 4.5, scale: 22.0)
+
+  ; Concentric glowing rings + rotating neon portal
+  at 0 0 [
+    blend add
+    pen_width 2.4
+    glow 0.5
+
+    repeat 5 with k [
+      color hsl((k * 55 + time * 45) % 360, 100%, 60%)
+      branch [
+        rt time * (18 + k * 8)
+        let rad = 50 + k * 42
+        pu  fd rad  rt 90 + (180 / 6)  pd
+        let edge = 2 * rad * sin(pi / 6)
+        repeat 6 [ fd edge  rt 60 ]
+      ]
+    ]
+
+    color #2ee68a
+    glow 0.8
+    dot 14 + sin(time * 5) * 3
+  ]
+end

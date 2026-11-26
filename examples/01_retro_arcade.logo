@@ -107,6 +107,7 @@ on frame(dt)
         bolt_x[b] = ship_x
         bolt_y[b] = ship_y - 11
         fire_cd = 0.18
+        play("examples/sfx/laser.wav", volume: 0.55)
       ]
     ]
   ]
@@ -147,6 +148,7 @@ on frame(dt)
             boom_x[i] = ex
             boom_y[i] = ey
             boom_t[i] = 0.35
+            play("examples/sfx/boom.wav", volume: 0.8)
           ]
         ]
       ]

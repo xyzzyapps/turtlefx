@@ -13,9 +13,54 @@ static const char *BUILTIN_EXAMPLES[] = {
     "examples/01_retro_arcade.logo",
     "examples/02_neon_2d.logo",
     "examples/03_3d_crystal_tree.logo",
-    "examples/04_retro_3d.logo"
+    "examples/04_retro_3d.logo",
+    "examples/05_custom_shader.logo"
 };
-static const int NUM_EXAMPLES = 4;
+static const int NUM_EXAMPLES = 5;
+
+/* Simple cached WAV sound bank (lazy-loaded on first play("file.wav")) */
+#define MAX_CACHED_SOUNDS 32
+typedef struct {
+    char path[256];
+    Sound sound;
+    bool loaded;
+} CachedSound;
+
+static CachedSound g_sounds[MAX_CACHED_SOUNDS];
+static int g_sound_count = 0;
+
+static void host_play_sound(const char *path, float volume, float pitch) {
+    if (!path || !path[0] || !IsAudioDeviceReady()) return;
+    for (int i = 0; i < g_sound_count; i++) {
+        if (strcmp(g_sounds[i].path, path) == 0) {
+            if (g_sounds[i].loaded) {
+                SetSoundVolume(g_sounds[i].sound, volume);
+                SetSoundPitch(g_sounds[i].sound, pitch > 0.05f ? pitch : 1.0f);
+                PlaySound(g_sounds[i].sound);
+            }
+            return;
+        }
+    }
+    if (g_sound_count >= MAX_CACHED_SOUNDS) return;
+    CachedSound *slot = &g_sounds[g_sound_count++];
+    snprintf(slot->path, sizeof(slot->path), "%s", path);
+    if (FileExists(path)) {
+        slot->sound = LoadSound(path);
+        slot->loaded = (slot->sound.frameCount > 0);
+        if (slot->loaded) {
+            SetSoundVolume(slot->sound, volume);
+            SetSoundPitch(slot->sound, pitch > 0.05f ? pitch : 1.0f);
+            PlaySound(slot->sound);
+        }
+    }
+}
+
+static void host_unload_sounds(void) {
+    for (int i = 0; i < g_sound_count; i++) {
+        if (g_sounds[i].loaded) UnloadSound(g_sounds[i].sound);
+    }
+    g_sound_count = 0;
+}
 
 static int map_key_name(const char *name) {
     if (!name) return 0;
@@ -212,8 +257,8 @@ static int run_render_test(void) {
         }
         logo_vm_run_frame(&sess.vm, 1.5, 0.016, input);
 
-        /* Render scene + post-FX directly into deterministic offscreen RT */
-        renderer_draw_to(&renderer, &sess.vm.scene, 960, 540, &out_rt);
+        /* Render scene + post-FX (+ optional custom shader) into deterministic offscreen RT */
+        renderer_draw_to(&renderer, &sess.vm.scene, 960, 540, 1.5, &out_rt);
 
         Image img = LoadImageFromTexture(out_rt.texture);
         ImageFlipVertical(&img);
@@ -262,7 +307,7 @@ static int run_make_media(void) {
     RenderTexture2D quad_rt = LoadRenderTexture(640, 360);
     Image collage = GenImageColor(1280, 720, (Color){10, 12, 18, 255});
 
-    for (int i = 0; i < NUM_EXAMPLES; i++) {
+    for (int i = 0; i < 4; i++) {
         LogoHostInput in = {0};
         in.view_w = 640;
         in.view_h = 360;
@@ -282,7 +327,7 @@ static int run_make_media(void) {
             logo_vm_run_frame(&sess.vm, 1.8, 1.0 / 60.0, in);
         }
 
-        renderer_draw_to(&renderer, &sess.vm.scene, 640, 360, &quad_rt);
+        renderer_draw_to(&renderer, &sess.vm.scene, 640, 360, 1.8, &quad_rt);
         BeginTextureMode(quad_rt);
             DrawRectangle(10, 10, 336, 26, (Color){8, 10, 18, 215});
             DrawRectangleLines(10, 10, 336, 26, (Color){80, 105, 150, 200});
@@ -307,7 +352,7 @@ static int run_make_media(void) {
     const int seg_frames[4] = {120, 80, 85, 75}; /* total = 360 frames = 12.0s */
     int frame_idx = 0;
 
-    for (int i = 0; i < NUM_EXAMPLES; i++) {
+    for (int i = 0; i < 4; i++) {
         LogoHostInput in = {0};
         in.view_w = 1280;
         in.view_h = 720;
@@ -324,7 +369,7 @@ static int run_make_media(void) {
                 logo_vm_run_frame(&sess.vm, t, 1.0 / 60.0, in);
             }
 
-            renderer_draw_to(&renderer, &sess.vm.scene, 1280, 720, &vid_rt);
+            renderer_draw_to(&renderer, &sess.vm.scene, 1280, 720, t, &vid_rt);
             BeginTextureMode(vid_rt);
                 const SceneIR *sc = &sess.vm.scene;
                 int prims = (sc->mode == RENDER_MODE_3D) ? sc->prim3d_count : sc->prim2d_count;
@@ -368,6 +413,7 @@ int main(int argc, char **argv) {
 
     SetConfigFlags(FLAG_WINDOW_RESIZABLE | FLAG_VSYNC_HINT);
     InitWindow(1280, 720, "TurtleFX — Modern Logo Shader Engine (C + raylib)");
+    InitAudioDevice();
     SetTargetFPS(60);
 
     LogoRenderer renderer;
@@ -376,6 +422,7 @@ int main(int argc, char **argv) {
     LogoHostInput input = {
         .is_key_down = host_is_key_down,
         .is_key_pressed = host_is_key_pressed,
+        .play_sound = host_play_sound,
         .mouse_x = 0,
         .mouse_y = 0,
         .view_w = GetScreenWidth(),
@@ -401,11 +448,12 @@ int main(int argc, char **argv) {
         input.mouse_x = (float)GetMouseX();
         input.mouse_y = (float)GetMouseY();
 
-        /* Built-in example switching (1-4), manual reload (R), HUD toggle (H), Screenshot (F12/P) */
+        /* Built-in example switching (1-5), manual reload (R), HUD toggle (H), Screenshot (F12/P) */
         if (IsKeyPressed(KEY_ONE))   session_load(&sess, BUILTIN_EXAMPLES[0], input);
         if (IsKeyPressed(KEY_TWO))   session_load(&sess, BUILTIN_EXAMPLES[1], input);
         if (IsKeyPressed(KEY_THREE)) session_load(&sess, BUILTIN_EXAMPLES[2], input);
         if (IsKeyPressed(KEY_FOUR))  session_load(&sess, BUILTIN_EXAMPLES[3], input);
+        if (IsKeyPressed(KEY_FIVE))  session_load(&sess, BUILTIN_EXAMPLES[4], input);
         if (IsKeyPressed(KEY_R))     session_load(&sess, sess.path, input);
         if (IsKeyPressed(KEY_H))     show_hud = !show_hud;
         bool want_screenshot = IsKeyPressed(KEY_F12) || IsKeyPressed(KEY_P);
@@ -434,26 +482,26 @@ int main(int argc, char **argv) {
             ClearBackground((Color){12, 14, 22, 255});
 
             if (!has_err) {
-                renderer_draw(&renderer, &sess.vm.scene, input.view_w, input.view_h);
+                renderer_draw(&renderer, &sess.vm.scene, input.view_w, input.view_h, sess.elapsed);
             } else {
                 DrawRectangle(40, 80, input.view_w - 80, 120, (Color){60, 16, 24, 230});
                 DrawRectangleLines(40, 80, input.view_w - 80, 120, (Color){240, 80, 96, 255});
                 DrawText("LOGO SCRIPT ERROR", 60, 98, 22, (Color){255, 130, 140, 255});
                 DrawText(sess.load_err, 60, 132, 18, WHITE);
-                DrawText("Fix the script and save to hot-reload (or press 1-4).", 60, 164, 15, LIGHTGRAY);
+                DrawText("Fix the script and save to hot-reload (or press 1-5).", 60, 164, 15, LIGHTGRAY);
             }
 
             if (show_hud) {
                 const SceneIR *sc = &sess.vm.scene;
                 int prims = (sc->mode == RENDER_MODE_3D) ? sc->prim3d_count : sc->prim2d_count;
-                DrawRectangle(12, 12, 740, 56, (Color){8, 10, 18, 195});
-                DrawRectangleLines(12, 12, 740, 56, (Color){70, 90, 130, 180});
+                DrawRectangle(12, 12, 830, 56, (Color){8, 10, 18, 195});
+                DrawRectangleLines(12, 12, 830, 56, (Color){70, 90, 130, 180});
 
                 char line1[256];
                 snprintf(line1, sizeof(line1), "TurtleFX  |  %.120s  |  Mode: %s  |  Prims: %d  |  %d FPS",
                          sess.path, mode_name(sc->mode), prims, GetFPS());
                 DrawText(line1, 24, 20, 16, (Color){230, 240, 255, 255});
-                DrawText("[1] Retro  [2] Neon 2D  [3] 3D Crystal  [4] Retro 3D  [R] Reload  [H] HUD  [F12] Screenshot",
+                DrawText("[1] Retro  [2] Neon 2D  [3] 3D Crystal  [4] Retro 3D  [5] Custom Shader  [R] Reload  [H] HUD  [F12] Shot",
                          24, 44, 13, (Color){155, 175, 210, 255});
             }
 
@@ -474,7 +522,9 @@ int main(int argc, char **argv) {
     }
 
     if (sess.prog) logo_program_free(sess.prog);
+    host_unload_sounds();
     renderer_shutdown(&renderer);
+    CloseAudioDevice();
     CloseWindow();
     return 0;
 }

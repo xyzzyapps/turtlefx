@@ -49,7 +49,7 @@
       <a href="#ch-5">05. Setup vs. 60 FPS Game Loop</a>
       <a href="#ch-6">06. Steering the 2D &amp; Retro Turtle</a>
       <a href="#ch-7">07. Flying the 3D Turtle</a>
-      <a href="#ch-8">08. Modes, Palettes &amp; Special FX</a>
+      <a href="#ch-8">08. Modes, FX, Shaders &amp; Sound</a>
       <a href="#ch-9">09. How Shaders Work (Retro / 2D / 3D)</a>
       <a href="#ch-10">10. Limits &amp; Peek Inside the C Code</a>
     </aside>
@@ -90,7 +90,7 @@ pu  fd 20  rt 90  pd  fd 50</code></pre>
             <tbody>
               <tr><td><strong>Numbers</strong></td><td><code>10</code>, <code>3.14</code>, <code>-5</code>, <code>100%</code></td><td>Distances, angles, speeds, timers. (<code>0</code> counts as false; any other number counts as true.)</td></tr>
               <tr><td><strong>Colors</strong></td><td><code>#f0a</code>, <code>#38bdf8</code>, <code>#ff004d88</code></td><td>3-digit (<code>#RGB</code>), 6-digit (<code>#RRGGBB</code>), or 8-digit with transparency (<code>#RRGGBBAA</code>).</td></tr>
-              <tr><td><strong>Text Strings</strong></td><td><code>"left"</code>, <code>"space"</code></td><td>Inside quotes, used to ask which key the player is pressing.</td></tr>
+              <tr><td><strong>Text Strings</strong></td><td><code>"left"</code>, <code>"space"</code>, <code>"""..."""</code></td><td>Single-line quotes for key names &amp; file paths, or triple-quoted <code>"""..."""</code> <strong>multiline strings</strong> for writing inline GLSL shaders!</td></tr>
               <tr><td><strong>Lists &amp; 3D Points</strong></td><td><code>[1, 1, 1, 1]</code>, <code>[0, 5, 10]</code></td><td>Hold up to <strong>64 numbers</strong> in one variable, or 3D positions <code>[x, y, z]</code>.</td></tr>
               <tr><td><strong>Option Words</strong></td><td><code>pico8</code>, <code>gameboy</code>, <code>add</code>, <code>2d</code>, <code>3d</code></td><td>Plain words without quotes for modes, palettes, and effects (e.g. <code>palette pico8</code>).</td></tr>
             </tbody>
@@ -647,18 +647,18 @@ end</code></pre>
         </div>
       </section>
 
-      <!-- CHAPTER 8: MODES, PALETTES & SPECIAL FX -->
+      <!-- CHAPTER 8: MODES, PALETTES, CUSTOM SHADERS & WAV SOUND -->
       <section id="ch-8" class="doc-section">
-        <div class="section-index">08 / LOOKS &amp; SPECIAL EFFECTS</div>
-        <h2>Modes, Palettes &amp; One-Line Shaders (<code>fx</code>)</h2>
+        <div class="section-index">08 / LOOKS, CUSTOM SHADERS &amp; SOUND</div>
+        <h2>Modes, FX, Custom GLSL Shaders &amp; WAV Sound</h2>
         <p>
-          You can completely transform the vibe of any game — from crisp neon vector to dusty 1990s GameBoy — by changing just 1 or 2 lines at the top of your script:
+          You can completely transform the vibe of any game — from crisp neon vector to dusty 1990s GameBoy — by changing just 1 or 2 lines at the top of your script, plugging in your own custom GLSL shader, or playing <code>.wav</code> sound effects:
         </p>
 
         <div class="table-wrap">
           <table>
             <thead>
-              <tr><th>Command</th><th>Options</th><th>Visual Style</th></tr>
+              <tr><th>Command</th><th>Options</th><th>What It Does</th></tr>
             </thead>
             <tbody>
               <tr><td><code>mode retro(320, 180)</code></td><td>Any pixel size <code>(w, h)</code></td><td>Chunky pixel-art screen scaled up with razor-sharp square pixels.</td></tr>
@@ -671,6 +671,8 @@ end</code></pre>
               <tr><td><code>fx retro(...)</code></td><td><code>w, h, dither: bayer|off, palette: ...</code></td><td>Turns even a <strong>3D world</strong> into chunky Bayer-dithered retro pixel art!</td></tr>
               <tr><td><code>fx fog(...)</code></td><td><code>color: #hex, near: 8, far: 22</code></td><td>Fades distant 3D shapes smoothly into atmospheric mist.</td></tr>
               <tr><td><code>fx vignette(0.35)</code></td><td>Strength <code>0.0</code>–<code>1.0</code></td><td>Gently darkens the corners of the screen like a movie lens.</td></tr>
+              <tr><td><code>fx shader("my.fs", ...)</code></td><td><code>path, amount/p0, speed/p1, scale/p2, mix/p3</code></td><td>Runs your own <strong>custom GLSL 330 fragment shader</strong> on top of the scene — and hot-reloads when you save the <code>.fs</code> file!</td></tr>
+              <tr><td><code>play("sfx.wav", ...)</code></td><td><code>path, volume: 0.8, pitch: 1.0</code></td><td>Plays any <code>.wav</code> sound file (auto-loaded &amp; cached on first play).</td></tr>
             </tbody>
           </table>
         </div>
@@ -680,6 +682,77 @@ end</code></pre>
 <pre><code>fx retro(320, 180, dither: bayer, palette: gameboy)
 fx fog(color: #0f380f, near: 8, far: 22)
 fx crt(scanlines: 0.22, curve: 0.06)</code></pre>
+        </div>
+
+        <h3>Playing WAV Sound Effects (<code>play</code>)</h3>
+        <p>
+          Drop any <code>.wav</code> file into your project folder and call <code>play(...)</code> whenever a laser fires, an enemy explodes, or a player jumps.
+          TurtleFX automatically loads and caches the file the first time you play it!
+        </p>
+        <div class="code-box">
+          <div class="code-title">Example: Laser &amp; Explosion WAV Sound Effects <button class="copy-btn">Copy</button></div>
+<pre><code>; Simple one-liner:
+play("examples/sfx/laser.wav")
+
+; With custom volume (0.0 to 1.0) and pitch (0.5 = deeper, 1.5 = higher):
+if key_pressed("space") [
+  play("examples/sfx/laser.wav", volume: 0.6, pitch: 1.1)
+]
+
+; Randomize pitch slightly on explosions so every hit sounds fresh!
+play("examples/sfx/boom.wav", volume: 0.85, pitch: 0.9 + rand() * 0.25)</code></pre>
+        </div>
+
+        <h3>Writing Your Own Custom Shader (<code>fx shader(...)</code>)</h3>
+        <p>
+          Want to invent your own screen effect — like underwater ripples, glitch VHS, thermal vision, or kaleidoscopes?
+          You can write your GLSL 330 shader <strong>directly inside your <code>.logo</code> file</strong> using a triple-quoted
+          multiline string (<code>""" ... """</code>), or point to an external <code>.fs</code> file like
+          <code>fx shader("examples/ripple.fs", ...)</code> (which auto hot-reloads on save!).
+          You can even pass live Logo expressions (like <code>sin(time)</code>) straight into <code>uParams</code>!
+        </p>
+        <div class="code-box">
+          <div class="code-title">Inline Custom Shader Using Multiline """...""" String (Press 5 in TurtleFX!) <button class="copy-btn">Copy</button></div>
+<pre><code>mode 2d
+fx bloom(strength: 0.45)
+
+let ripple_glsl = """
+#version 330
+in vec2 fragTexCoord;
+out vec4 finalColor;
+
+uniform sampler2D texture0;   // Your rendered TurtleFX scene
+uniform vec2 uResolution;     // Screen size in pixels
+uniform float uTime;          // Live time in seconds
+uniform vec4 uParams;         // (amount/p0, speed/p1, scale/p2, mix/p3)
+
+void main() {
+    vec2 center = fragTexCoord - 0.5;
+    float dist = length(center);
+    float wave = sin(dist * uParams.z - uTime * uParams.y) * uParams.x;
+    vec2 dir = (dist &gt; 0.001) ? (center / dist) : vec2(0.0);
+    vec2 uv = fragTexCoord + dir * wave;
+
+    // RGB chromatic split along the ripple wave
+    float r = texture(texture0, uv + dir * abs(wave)).r;
+    float g = texture(texture0, uv).g;
+    float b = texture(texture0, uv - dir * abs(wave)).b;
+    finalColor = vec4(r, g, b, 1.0);
+}
+"""
+
+on frame(dt)
+  clear #070912
+  ; Animate shader strength live from Logo!
+  let pulse = 0.009 + sin(time * 2.0) * 0.005
+  fx shader(ripple_glsl, amount: pulse, speed: 4.5, scale: 22.0)
+
+  ; Or load from a separate file instead:
+  ; fx shader("examples/ripple.fs", amount: pulse, speed: 4.5, scale: 22.0)
+
+  color #2ee68a
+  dot 40
+end</code></pre>
         </div>
       </section>
 

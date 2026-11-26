@@ -1,8 +1,80 @@
 #include "renderer.h"
 #include "shaders.h"
 
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
+
+static time_t shader_file_mtime(const char *path) {
+    struct stat st;
+    if (stat(path, &st) == 0) return st.st_mtime;
+    return 0;
+}
+
+static void ensure_post_rt(LogoRenderer *r, int w, int h) {
+    if (w < 16) w = 16;
+    if (h < 16) h = 16;
+    if (r->post_rt_w != w || r->post_rt_h != h) {
+        if (r->post_rt.id != 0) UnloadRenderTexture(r->post_rt);
+        r->post_rt = LoadRenderTexture(w, h);
+        SetTextureFilter(r->post_rt.texture, TEXTURE_FILTER_BILINEAR);
+        SetTextureWrap(r->post_rt.texture, TEXTURE_WRAP_CLAMP);
+        r->post_rt_w = w;
+        r->post_rt_h = h;
+    }
+}
+
+static uint64_t fnv1a_hash(const char *s) {
+    uint64_t h = 14695981039346656037ULL;
+    for (const unsigned char *p = (const unsigned char *)s; *p; p++) {
+        h ^= (uint64_t)(*p);
+        h *= 1099511628211ULL;
+    }
+    return h;
+}
+
+static void ensure_custom_shader(LogoRenderer *r, const SceneIR *s, double time_sec) {
+    if (!s->custom_shader_enabled) return;
+
+    /* Case 1: Inline GLSL source passed via multiline """...""" string */
+    if (s->custom_shader_code && s->custom_shader_code[0]) {
+        uint64_t h = fnv1a_hash(s->custom_shader_code);
+        if (r->custom_is_inline && r->custom_code_hash == h && r->sh_custom.id != 0) return;
+
+        if (r->sh_custom.id != 0) {
+            UnloadShader(r->sh_custom);
+            r->sh_custom = (Shader){0};
+        }
+        r->custom_is_inline = true;
+        r->custom_code_hash = h;
+        r->custom_path[0] = '\0';
+        r->sh_custom = LoadShaderFromMemory(NULL, s->custom_shader_code);
+        return;
+    }
+
+    /* Case 2: External .fs file path with automatic hot-reload */
+    if (!s->custom_shader_path[0]) return;
+    bool path_changed = r->custom_is_inline || strcmp(r->custom_path, s->custom_shader_path) != 0;
+    bool check_reload = path_changed || (time_sec - r->custom_check_t >= 0.35) || (time_sec < r->custom_check_t);
+    if (!check_reload) return;
+    r->custom_check_t = time_sec;
+
+    time_t mt = shader_file_mtime(s->custom_shader_path);
+    if (!path_changed && mt == r->custom_mtime && r->sh_custom.id != 0) return;
+
+    if (r->sh_custom.id != 0) {
+        UnloadShader(r->sh_custom);
+        r->sh_custom = (Shader){0};
+    }
+    r->custom_is_inline = false;
+    r->custom_code_hash = 0;
+    snprintf(r->custom_path, sizeof(r->custom_path), "%s", s->custom_shader_path);
+    r->custom_mtime = mt;
+    if (mt != 0) {
+        r->sh_custom = LoadShader(NULL, s->custom_shader_path);
+    }
+}
 
 static Texture2D make_float_data_tex(int w, int h) {
     Image img = {0};
@@ -74,10 +146,12 @@ void renderer_shutdown(LogoRenderer *r) {
     UnloadShader(r->sh_bloom_extract);
     UnloadShader(r->sh_blur);
     UnloadShader(r->sh_post);
+    if (r->sh_custom.id != 0) UnloadShader(r->sh_custom);
     UnloadTexture(r->white_tex);
     UnloadTexture(r->prim2d_tex);
     UnloadTexture(r->prim3d_tex);
     if (r->scene_rt.id != 0) UnloadRenderTexture(r->scene_rt);
+    if (r->post_rt.id != 0) UnloadRenderTexture(r->post_rt);
     if (r->bloom_a.id != 0) UnloadRenderTexture(r->bloom_a);
     if (r->bloom_b.id != 0) UnloadRenderTexture(r->bloom_b);
     free(r->prim2d_buf);
@@ -126,11 +200,11 @@ static void upload_prims3d(LogoRenderer *r, const SceneIR *s) {
     if (n > 0) UpdateTexture(r->prim3d_tex, r->prim3d_buf);
 }
 
-void renderer_draw(LogoRenderer *r, const SceneIR *s, int screen_w, int screen_h) {
-    renderer_draw_to(r, s, screen_w, screen_h, NULL);
+void renderer_draw(LogoRenderer *r, const SceneIR *s, int screen_w, int screen_h, double time_sec) {
+    renderer_draw_to(r, s, screen_w, screen_h, time_sec, NULL);
 }
 
-void renderer_draw_to(LogoRenderer *r, const SceneIR *s, int screen_w, int screen_h, const RenderTexture2D *target) {
+void renderer_draw_to(LogoRenderer *r, const SceneIR *s, int screen_w, int screen_h, double time_sec, const RenderTexture2D *target) {
     /* Decide internal render target resolution */
     int target_w = screen_w;
     int target_h = screen_h;
@@ -262,7 +336,15 @@ void renderer_draw_to(LogoRenderer *r, const SceneIR *s, int screen_w, int scree
     SetShaderValue(r->sh_post, GetShaderLocation(r->sh_post, "uPalette"), &pal, SHADER_UNIFORM_INT);
     SetShaderValue(r->sh_post, GetShaderLocation(r->sh_post, "uDither"), &dither, SHADER_UNIFORM_INT);
 
-    if (target) BeginTextureMode(*target);
+    ensure_custom_shader(r, s, time_sec);
+    bool use_custom = s->custom_shader_enabled && IsShaderValid(r->sh_custom);
+
+    if (use_custom) {
+        ensure_post_rt(r, screen_w, screen_h);
+        BeginTextureMode(r->post_rt);
+    } else if (target) {
+        BeginTextureMode(*target);
+    }
     BeginShaderMode(r->sh_post);
         SetShaderValueTexture(r->sh_post, GetShaderLocation(r->sh_post, "uBloomTex"), r->bloom_a.texture);
         DrawTexturePro(r->scene_rt.texture,
@@ -270,5 +352,22 @@ void renderer_draw_to(LogoRenderer *r, const SceneIR *s, int screen_w, int scree
                        (Rectangle){0, 0, (float)screen_w, (float)screen_h},
                        (Vector2){0, 0}, 0.0f, WHITE);
     EndShaderMode();
-    if (target) EndTextureMode();
+    if (use_custom || target) EndTextureMode();
+
+    /* ---- Pass 4: Optional User Custom Fragment Shader ---- */
+    if (use_custom) {
+        float t_f = (float)time_sec;
+        SetShaderValue(r->sh_custom, GetShaderLocation(r->sh_custom, "uResolution"), out_res, SHADER_UNIFORM_VEC2);
+        SetShaderValue(r->sh_custom, GetShaderLocation(r->sh_custom, "uTime"), &t_f, SHADER_UNIFORM_FLOAT);
+        SetShaderValue(r->sh_custom, GetShaderLocation(r->sh_custom, "uParams"), s->custom_params, SHADER_UNIFORM_VEC4);
+
+        if (target) BeginTextureMode(*target);
+        BeginShaderMode(r->sh_custom);
+            DrawTexturePro(r->post_rt.texture,
+                           (Rectangle){0, 0, (float)screen_w, -(float)screen_h},
+                           (Rectangle){0, 0, (float)screen_w, (float)screen_h},
+                           (Vector2){0, 0}, 0.0f, WHITE);
+        EndShaderMode();
+        if (target) EndTextureMode();
+    }
 }

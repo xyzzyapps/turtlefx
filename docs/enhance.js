@@ -2,7 +2,7 @@
 // copy micro-interaction, and sticky TOC scroll-spy.
 (function () {
   const KEYWORDS = new Set([
-    "mode", "palette", "fx", "clear", "sky", "light", "camera", "material",
+    "mode", "palette", "fx", "play", "clear", "sky", "light", "camera", "material",
     "to", "end", "on", "frame", "let", "if", "else", "repeat", "with", "while",
     "stop", "return", "and", "or", "not", "branch", "save", "at", "offset",
     "fill", "smooth", "carve", "fd", "forward", "bk", "back", "rt", "right",
@@ -23,7 +23,7 @@
   }
 
   function highlightLogo(code) {
-    const tokenRe = /(;[^\n]*|\/\/[^\n]*)|("(?:[^"\\]|\\.)*")|(#[0-9a-fA-F]{3,8}\b)|(\b\d+(?:\.\d+)?%?\b)|(\b[a-zA-Z_][a-zA-Z0-9_]*\b)/g;
+    const tokenRe = /(;[^\n]*|\/\/[^\n]*)|("""[\s\S]*?"""|"(?:[^"\\]|\\.)*")|(#[0-9a-fA-F]{3,8}\b)|(\b\d+(?:\.\d+)?%?\b)|(\b[a-zA-Z_][a-zA-Z0-9_]*\b)/g;
     let out = "";
     let last = 0;
     let m;

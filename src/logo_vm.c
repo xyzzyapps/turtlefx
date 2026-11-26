@@ -389,7 +389,8 @@ static LogoVal eval_expr(LogoVM *vm, Expr *e) {
         case EXPR_STR: {
             LogoVal v = {0};
             v.type = VAL_STR;
-            snprintf(v.str, sizeof(v.str), "%s", e->as.str);
+            snprintf(v.str, sizeof(v.str), "%s", e->as.str.small);
+            v.long_str = e->as.str.heap;
             return v;
         }
 
@@ -662,6 +663,29 @@ static void exec_fx_call(LogoVM *vm, Expr *fx_expr) {
             vm->scene.fog_color[2] = col.vec[2];
             vm->scene.fog_near = (float)val_as_num(eval_arg_named(vm, a, ac, "near", 1, make_num(6.0)));
             vm->scene.fog_far  = (float)val_as_num(eval_arg_named(vm, a, ac, "far", 2, make_num(18.0)));
+        } else if (seq(fn, "shader")) {
+            LogoVal src = eval_arg_named(vm, a, ac, "path", 0,
+                          eval_arg_named(vm, a, ac, "code", 0, make_sym("")));
+            const char *txt = src.long_str ? src.long_str : src.str;
+            if (txt[0]) {
+                vm->scene.custom_shader_enabled = true;
+                bool is_inline = (strchr(txt, '\n') != NULL) || (strncmp(txt, "#version", 8) == 0);
+                if (is_inline) {
+                    vm->scene.custom_shader_code = txt;
+                    vm->scene.custom_shader_path[0] = '\0';
+                } else {
+                    vm->scene.custom_shader_code = NULL;
+                    snprintf(vm->scene.custom_shader_path, sizeof(vm->scene.custom_shader_path), "%s", txt);
+                }
+                vm->scene.custom_params[0] = (float)val_as_num(eval_arg_named(vm, a, ac, "p0", 1,
+                    eval_arg_named(vm, a, ac, "amount", 1, eval_arg_named(vm, a, ac, "strength", 1, make_num(0.0)))));
+                vm->scene.custom_params[1] = (float)val_as_num(eval_arg_named(vm, a, ac, "p1", 2,
+                    eval_arg_named(vm, a, ac, "speed", 2, make_num(1.0))));
+                vm->scene.custom_params[2] = (float)val_as_num(eval_arg_named(vm, a, ac, "p2", 3,
+                    eval_arg_named(vm, a, ac, "scale", 3, make_num(1.0))));
+                vm->scene.custom_params[3] = (float)val_as_num(eval_arg_named(vm, a, ac, "p3", 4,
+                    eval_arg_named(vm, a, ac, "mix", 4, make_num(1.0))));
+            }
         }
     }
 }
@@ -703,6 +727,16 @@ static void exec_cmd(LogoVM *vm, Stmt *s) {
 
     if (seq(cmd, "fx")) {
         if (ac >= 1) exec_fx_call(vm, a[0].value);
+        return;
+    }
+
+    if (seq(cmd, "play")) {
+        LogoVal path = eval_arg_named(vm, a, ac, "path", 0, make_sym(""));
+        float vol   = (float)val_as_num(eval_arg_named(vm, a, ac, "volume", 1, make_num(1.0)));
+        float pitch = (float)val_as_num(eval_arg_named(vm, a, ac, "pitch", 2, make_num(1.0)));
+        if (path.str[0] && vm->input.play_sound) {
+            vm->input.play_sound(path.str, vol, pitch);
+        }
         return;
     }
 

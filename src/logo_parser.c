@@ -51,6 +51,7 @@ typedef struct {
     double num;
     float color[4];
     char text[64];
+    char *long_str;
 } Token;
 
 typedef struct {
@@ -167,8 +168,41 @@ static Token lex_next(Parser *p) {
         return t;
     }
 
-    /* String literal */
+    /* String literal: single-line "..." or multiline """...""" */
     if (c == '"') {
+        if (p->src[p->pos + 1] == '"' && p->src[p->pos + 2] == '"') {
+            p->pos += 3;
+            /* Strip optional single leading newline so """\n#version 330 starts cleanly at line 1 */
+            if (p->src[p->pos] == '\r' && p->src[p->pos + 1] == '\n') { p->pos += 2; p->line++; }
+            else if (p->src[p->pos] == '\n') { p->pos++; p->line++; }
+
+            size_t start = p->pos;
+            while (p->src[p->pos]) {
+                if (p->src[p->pos] == '"' && p->src[p->pos + 1] == '"' && p->src[p->pos + 2] == '"') {
+                    break;
+                }
+                if (p->src[p->pos] == '\n') p->line++;
+                p->pos++;
+            }
+            size_t raw_len = p->pos - start;
+            if (p->src[p->pos] == '"' && p->src[p->pos + 1] == '"' && p->src[p->pos + 2] == '"') {
+                p->pos += 3;
+            } else {
+                parser_error(p, t.line, "Unterminated multiline string literal (expected \"\"\")");
+            }
+
+            char *buf = (char *)malloc(raw_len + 1);
+            size_t out = 0;
+            for (size_t i = 0; i < raw_len; i++) {
+                if (p->src[start + i] != '\r') buf[out++] = p->src[start + i];
+            }
+            buf[out] = '\0';
+            t.long_str = buf;
+            snprintf(t.text, sizeof(t.text), "%s", buf);
+            t.kind = TOK_STR;
+            return t;
+        }
+
         p->pos++;
         size_t out = 0;
         while (p->src[p->pos] && p->src[p->pos] != '"' && p->src[p->pos] != '\n') {
@@ -310,6 +344,9 @@ static void stmt_list_push(StmtList *list, Stmt *s) {
 static void expr_free(Expr *e) {
     if (!e) return;
     switch (e->kind) {
+        case EXPR_STR:
+            free(e->as.str.heap);
+            break;
         case EXPR_LIST:
             for (int i = 0; i < e->as.list.count; i++) expr_free(e->as.list.items[i]);
             free(e->as.list.items);
@@ -464,9 +501,11 @@ static Expr *parse_primary(Parser *p) {
         return e;
     }
     if (t.kind == TOK_STR) {
+        p->cur.long_str = NULL; /* transfer ownership to Expr */
         advance(p);
         Expr *e = new_expr(EXPR_STR, t.line);
-        snprintf(e->as.str, sizeof(e->as.str), "%s", t.text);
+        snprintf(e->as.str.small, sizeof(e->as.str.small), "%s", t.text);
+        e->as.str.heap = t.long_str;
         return e;
     }
     if (t.kind == TOK_IDENT) {
@@ -714,7 +753,8 @@ static int bare_command_arity(const char *name) {
         str_eq_ci(name, "dot") || str_eq_ci(name, "circle") ||
         str_eq_ci(name, "sphere") || str_eq_ci(name, "mode") ||
         str_eq_ci(name, "sky") || str_eq_ci(name, "material") ||
-        str_eq_ci(name, "light") || str_eq_ci(name, "fx")) return 1;
+        str_eq_ci(name, "light") || str_eq_ci(name, "fx") ||
+        str_eq_ci(name, "play")) return 1;
 
     if (str_eq_ci(name, "rect") || str_eq_ci(name, "capsule") ||
         str_eq_ci(name, "cylinder") || str_eq_ci(name, "cone") ||
@@ -962,6 +1002,9 @@ LogoProgram *logo_parse(const char *source) {
         if (p.cur.kind == TOK_EOF) break;
         stmt_list_push(&prog->top_level, parse_stmt(&p));
     }
+
+    if (p.cur.long_str) free(p.cur.long_str);
+    if (p.has_peek && p.peek.long_str) free(p.peek.long_str);
 
     if (p.has_error) {
         prog->has_error = true;
