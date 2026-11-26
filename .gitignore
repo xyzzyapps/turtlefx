@@ -1,0 +1,22 @@
+# Build artifacts
+build/
+cmake-build-*/
+*.exe
+*.obj
+*.o
+*.a
+
+# Demo videos (kept local, not committed)
+*.mp4
+*.webm
+*.mov
+*.mkv
+
+# In-game user screenshots (assets/screenshot.png stays tracked)
+screenshot_*.png
+
+# Editor / OS
+.vscode/
+.vs/
+Thumbs.db
+.DS_Store

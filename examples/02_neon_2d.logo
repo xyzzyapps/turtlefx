@@ -1,0 +1,53 @@
+; Example 2: Modern 2D Vector + SDF Glow + Bloom Mode
+; Resolution-independent anti-aliased turtle strokes with zero GLSL
+
+mode 2d
+fx bloom(strength: 0.45, radius: 10)
+fx vignette(0.35)
+
+to neon_polygon(sides, radius, hue)
+  color hsl(hue, 100%, 58%)
+  pen_width 2.2
+  glow 0.42
+  blend add
+
+  pu  fd radius  rt 90 + (180 / sides)  pd
+  let edge = 2 * radius * sin(pi / sides)
+  repeat sides [
+    fd edge
+    rt 360 / sides
+  ]
+end
+
+on frame(dt)
+  clear #06070d
+
+  ; Central pulsing energy core
+  at 0 0 [
+    blend add
+    glow 0.55
+    color hsl((time * 60) % 360, 100%, 62%)
+    dot 12 + sin(time * 4) * 3
+
+    ; Outer rotating neon mandala
+    rt time * 24
+    repeat 8 with i [
+      branch [
+        rt i * 45
+        pu  fd 145 + sin(time * 2.5 + i * 0.8) * 22  pd
+        rt time * -55
+        neon_polygon(6, 44, (i * 45 + time * 45) % 360)
+      ]
+    ]
+
+    ; Inner counter-rotating star petals
+    lt time * 42
+    repeat 6 with i [
+      branch [
+        rt i * 60
+        pu  fd 72  pd
+        neon_polygon(3, 24, (180 + i * 60 - time * 50) % 360)
+      ]
+    ]
+  ]
+end

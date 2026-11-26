@@ -1,0 +1,54 @@
+; Example 4: Cross-Mode Magic — 3D SDF World rendered through a Retro GameBoy Shader!
+; Just two lines (`fx retro` + `fx fog`) turn any 3D Logo scene into dithered handheld 3D.
+
+mode 3d
+sky gradient(#8bac0f, #306230)
+light sun(dir: [-1, -2, -1], color: #9bbc0f, shadows: soft)
+fx retro(320, 180, dither: bayer, palette: gameboy)
+fx fog(color: #0f380f, near: 8, far: 22)
+fx crt(scanlines: 0.22, curve: 0.06)
+
+to tree(len, radius, depth)
+  if depth == 0 [
+    material emissive(#9bbc0f, strength: 1.8)
+    sphere(radius * 2.5)
+    stop
+  ]
+
+  material matte(#306230)
+  capsule(len, radius)
+  fd len
+
+  branch [ roll 15   pitch 28  tree(len * 0.72, radius * 0.72, depth - 1) ]
+  branch [ roll 135  pitch 30  tree(len * 0.70, radius * 0.72, depth - 1) ]
+  branch [ roll 255  pitch 26  tree(len * 0.68, radius * 0.72, depth - 1) ]
+end
+
+on frame(dt)
+  camera(
+    pos: [sin(time * 0.4) * 11.2, 3.2, cos(time * 0.4) * 11.2],
+    look: [0, 1.5, 0],
+    fov: 46
+  )
+
+  smooth 0.55 [
+    material matte(#8bac0f)
+    at 0 0 0 [ cylinder(radius: 4.2, height: 0.9) ]
+
+    material matte(#306230)
+    at 0 -1.9 0 [ roll 180  cone(radius: 3.9, height: 3.6) ]
+  ]
+
+  at -2.0 1.4 0.3 [
+    material matte(#8bac0f)
+    box(2.1, 2.5, 0.85)
+    carve [
+      at -2.0 0.45 0.3 [ pitch 90  capsule(1.3, 0.62) ]
+    ]
+  ]
+
+  at 1.1 0.35 -0.2 [
+    pitch 90
+    tree(2.0, 0.24, 3)
+  ]
+end

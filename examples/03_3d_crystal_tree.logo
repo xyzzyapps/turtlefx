@@ -1,0 +1,66 @@
+; Example 3: 3D SDF Raymarching Mode (Floating Island + Carved Arch + Crystal Tree)
+; Uses 3D turtle orientation (pitch/yaw/roll), smooth SDF union, boolean carve,
+; emissive crystals, soft shadows & bloom — all driven by Logo!
+
+mode 3d
+sky gradient(#0b1120, #312e81)
+light sun(dir: [-1, -2, -1], color: #ffe8cc, shadows: soft)
+fx bloom(strength: 0.55, radius: 10)
+fx vignette(0.25)
+
+to tree(len, radius, depth)
+  if depth == 0 [
+    material emissive(#38bdf8, strength: 2.2)
+    sphere(radius * 2.4)
+    stop
+  ]
+
+  material matte(#6b4423)
+  capsule(len, radius)
+  fd len
+
+  ; Spread 3 branches evenly around the trunk axis using roll + pitch
+  branch [ roll 15   pitch 28  tree(len * 0.72, radius * 0.72, depth - 1) ]
+  branch [ roll 135  pitch 30  tree(len * 0.70, radius * 0.72, depth - 1) ]
+  branch [ roll 255  pitch 26  tree(len * 0.68, radius * 0.72, depth - 1) ]
+end
+
+on frame(dt)
+  camera(
+    pos: [sin(time * 0.35) * 11.5, 3.3 + sin(time * 0.6) * 0.5, cos(time * 0.35) * 11.5],
+    look: [0, 1.5, 0],
+    fov: 46
+  )
+
+  ; Floating island built with smooth-blended 3D SDFs
+  smooth 0.55 [
+    material matte(#4d7c0f)
+    at 0 0 0 [ cylinder(radius: 4.2, height: 0.9) ]
+
+    material matte(#645e59)
+    at 0 -1.9 0 [ roll 180  cone(radius: 3.9, height: 3.6) ]
+  ]
+
+  ; Stone arch with a boolean-carved doorway
+  at -2.0 1.4 0.3 [
+    material matte(#94a3b8)
+    box(2.1, 2.5, 0.85)
+    carve [
+      at -2.0 0.45 0.3 [ pitch 90  capsule(1.3, 0.62) ]
+    ]
+  ]
+
+  ; Orbiting glossy energy ring above the arch
+  at -2.0 3.3 + sin(time * 2.0) * 0.25 0.3 [
+    material emissive(#f472b6, strength: 1.8)
+    yaw time * 60
+    pitch 25
+    torus(0.65, 0.11)
+  ]
+
+  ; Recursive glowing crystal tree growing upward (+Y)
+  at 1.1 0.35 -0.2 [
+    pitch 90
+    tree(2.0, 0.24, 3)
+  ]
+end

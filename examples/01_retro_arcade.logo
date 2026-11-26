@@ -1,0 +1,183 @@
+; Example 1: Retro Pixel Arcade Mode (PICO-8 Palette + CRT Shader)
+; Controls: Left/Right (or A/D) to steer, Space to fire lasers and destroy enemies!
+
+mode retro(320, 180)
+palette pico8
+fx crt(scanlines: 0.35, curve: 0.10)
+
+; Player state
+let ship_x = 160
+let ship_y = 150
+let fire_cd = 0
+
+; Pool of 3 laser bolts
+let bolt_x = [0, 0, 0]
+let bolt_y = [-20, -20, -20]
+
+; Wave of 6 enemies + explosion state
+let enemy_alive = [1, 1, 1, 1, 1, 1]
+let boom_t = [0, 0, 0, 0, 0, 0]
+let boom_x = [0, 0, 0, 0, 0, 0]
+let boom_y = [0, 0, 0, 0, 0, 0]
+let alive_count = 6
+let respawn_t = 0
+let wave = 1
+let kills = 0
+
+to draw_ship()
+  ; Symmetric retro fighter hull centered on turtle
+  color #fff1e8
+  branch [
+    pu  fd 10  pd
+    fill [
+      rt 150  fd 18
+      rt 110  fd 6
+      lt 50   fd 4
+      rt 100  fd 4
+      lt 50   fd 6
+      rt 110  fd 18
+    ]
+  ]
+
+  ; Wing accent stripes
+  color #ff004d
+  offset -6 -3 [ dot 1.4 ]
+  offset  6 -3 [ dot 1.4 ]
+
+  ; Cockpit canopy
+  color #29adff
+  offset 0 1 [ dot 2.0 ]
+
+  ; Flickering thruster flame
+  color #ffa300
+  offset 0 -7 [
+    pen_width 2.5
+    rt 180
+    fd 4 + sin(time * 35) * 2.5
+  ]
+end
+
+to draw_enemy(ex, ey)
+  at ex ey [
+    color #ff004d
+    rect 13 8
+    color #ffec27
+    offset -3 0 [ dot 1.3 ]
+    offset  3 0 [ dot 1.3 ]
+  ]
+end
+
+to draw_explosion(bx, by, t_left)
+  ; Progress goes 0.0 (start) -> 1.0 (end)
+  let prog = 1.0 - (t_left / 0.35)
+  at bx by [
+    ; Central flash right after impact
+    if prog < 0.35 [
+      color #fff1e8
+      dot 5.0 * (1.0 - prog * 2.0)
+    ]
+
+    ; Radial turtle shrapnel burst
+    if prog < 0.5 [ color #ffec27 ] else [ color #ffa300 ]
+    pen_width 1.6
+    rt prog * 40
+    repeat 8 with k [
+      branch [
+        rt k * 45
+        pu  fd prog * 13  pd
+        fd 4.5 * (1.0 - prog)
+      ]
+    ]
+  ]
+end
+
+on frame(dt)
+  clear #1d2b53
+
+  ; 1. Ship steering
+  if key("left")  [ ship_x -= 125 * dt ]
+  if key("right") [ ship_x += 125 * dt ]
+  ship_x = clamp(ship_x, 16, 304)
+
+  ; 2. Fire up to 3 laser bolts with short cooldown
+  if fire_cd > 0 [ fire_cd -= dt ]
+  if key("space") and fire_cd <= 0 [
+    repeat 3 with b [
+      if bolt_y[b] < -10 and fire_cd <= 0 [
+        bolt_x[b] = ship_x
+        bolt_y[b] = ship_y - 11
+        fire_cd = 0.18
+      ]
+    ]
+  ]
+
+  ; 3. Move & draw active laser bolts
+  repeat 3 with b [
+    if bolt_y[b] >= -10 [
+      bolt_y[b] -= 250 * dt
+      color #00e436
+      pen_width 2
+      at bolt_x[b] bolt_y[b] [ fd 9 ]
+    ]
+  ]
+
+  ; 4. Scrolling parallax starfield
+  repeat 45 with i [
+    let sx = (i * 73 + 17) % 320
+    let sy = (i * 41 + time * (22 + (i % 3) * 18)) % 180
+    color #c2c3c7
+    at sx sy [ dot 0.8 ]
+  ]
+
+  ; 5. Update enemies, check laser hits & render explosions
+  let speed = 2.0 + (wave - 1) * 0.35
+  repeat 6 with i [
+    let ex = 48 + i * 44 + sin(time * speed + i) * 16
+    let ey = 38 + cos(time * (speed * 0.8) + i * 0.7) * 11
+
+    if enemy_alive[i] == 1 [
+      ; Hit test against all active laser bolts
+      repeat 3 with b [
+        if bolt_y[b] >= -10 and enemy_alive[i] == 1 [
+          if abs(bolt_x[b] - ex) < 9 and abs(bolt_y[b] - ey) < 8 [
+            enemy_alive[i] = 0
+            alive_count -= 1
+            kills += 1
+            bolt_y[b] = -20
+            boom_x[i] = ex
+            boom_y[i] = ey
+            boom_t[i] = 0.35
+          ]
+        ]
+      ]
+    ]
+
+    if enemy_alive[i] == 1 [
+      draw_enemy(ex, ey)
+    ]
+
+    if boom_t[i] > 0 [
+      draw_explosion(boom_x[i], boom_y[i], boom_t[i])
+      boom_t[i] -= dt
+    ]
+  ]
+
+  ; 6. Respawn next wave once all 6 enemies are destroyed
+  if alive_count <= 0 [
+    respawn_t += dt
+    if respawn_t > 0.75 [
+      respawn_t = 0
+      wave += 1
+      alive_count = 6
+      repeat 6 with i [ enemy_alive[i] = 1 ]
+    ]
+  ]
+
+  ; 7. Draw player ship & kill-streak pips along bottom-left
+  at ship_x ship_y [ draw_ship() ]
+
+  repeat min(kills, 24) with k [
+    color #ffec27
+    at (10 + k * 5) 172 [ pen_width 2  fd 4 ]
+  ]
+end
