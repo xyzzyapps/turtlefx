@@ -22,12 +22,11 @@
 
   <header class="doc-hero">
     <div class="container">
-      <div class="badge">Complete Language &amp; Internals Reference • C11 + raylib 5.5 + GLSL 330</div>
+      <div class="badge">Complete Language, Turtle &amp; Shader Internals • C11 + raylib 5.5 + GLSL 330</div>
       <h1>The <span class="grad">TurtleFX Modern Logo</span> Specification</h1>
       <p class="lead">
-        A single-page, step-by-step reference covering every piece of the TurtleFX Logo dialect —
-        from lexical rules, list indexing, and 3D Rodrigues turtle rotations to how statements compile
-        into <code>RGBA32F</code> GPU textures and hidden OpenGL 3.3 shaders.
+        A single-page, step-by-step reference with runnable examples for every feature — including how to steer the 2D &amp; 3D turtle,
+        how GPU shaders work under the hood, and how <strong>Retro Pixel</strong>, <strong>Modern 2D</strong>, and <strong>3D Raymarching</strong> share one hidden pipeline.
       </p>
 
       <div class="pipeline-bar" aria-label="Compilation and rendering pipeline">
@@ -55,10 +54,11 @@
       <a href="#step-3">3. Expressions &amp; Built-ins</a>
       <a href="#step-4">4. Statements &amp; Control Flow</a>
       <a href="#step-5">5. Init vs. Frame Lifecycle</a>
-      <a href="#step-6">6. 2D, Retro &amp; 3D Turtle</a>
+      <a href="#step-6">6. Controlling the Turtle</a>
       <a href="#step-7">7. Declarative Shaders &amp; FX</a>
-      <a href="#step-8">8. Under the Hood (GPU)</a>
-      <a href="#step-9">9. Limits &amp; Source Map</a>
+      <a href="#step-8">8. How Shaders Work (Retro / 2D / 3D)</a>
+      <a href="#step-9">9. GPU Texture &amp; GLSL Internals</a>
+      <a href="#step-10">10. Limits &amp; Source Map</a>
     </aside>
 
     <!-- MAIN DOCUMENTATION CONTENT -->
@@ -109,17 +109,32 @@
           </table>
         </div>
 
-        <div class="callout">
-          <h3>Whitespace-Aware Disambiguation (Zero-Semicolon Magic)</h3>
-          <p>
-            Every token records two flags: <code>space_before</code> (was there whitespace before this token?) and
-            <code>attached_right</code> (is the next character immediately a digit or <code>.</code>?). This resolves three classic Logo ambiguities without extra punctuation:
-          </p>
-          <ul>
-            <li><strong>List index vs. block:</strong> <code>enemy_alive[i]</code> (no space before <code>[</code>) parses as <em>indexing</em>; <code>if alive [ ... ]</code> (space before <code>[</code>) starts a <em>block</em>.</li>
-            <li><strong>Call vs. grouped bare arg:</strong> <code>at(10, 20) [...]</code> (no space before <code>(</code>) parses as a parenthesized call; <code>at (10 + k * 5) 172 [...]</code> (space before <code>(</code>) parses <code>(10 + k * 5)</code> as the first space-separated coordinate.</li>
-            <li><strong>Negative bare arg vs. subtraction:</strong> <code>at 0 -4 [...]</code> (space before <code>-</code>, digit attached on right) splits into two args <code>0</code> and <code>-4</code>, while <code>0 - 4</code> performs subtraction.</li>
-          </ul>
+        <div class="two-col">
+          <div class="code-box">
+            <div class="code-title">Example: Literals &amp; Whitespace Rules <button class="copy-btn">Copy</button></div>
+<pre><code>; Comments can start with ; or //
+// Hex colors support #RGB, #RRGGBB, and #RRGGBBAA
+color #38bdf8
+color #ff004dcc          ; semi-transparent red
+color hsl(200, 100%, 60%)
+
+; Whitespace distinguishes indexing vs. blocks:
+if alive[i] == 1 [       ; no space in alive[i] = index
+  at 0 -4 [ dot 2 ]      ; space before -4 = two args (0, -4)
+  at (10 + i * 5) 20 [   ; space before ( = grouped 1st arg
+    dot 1.5
+  ]
+]</code></pre>
+          </div>
+          <div class="callout">
+            <h3>Whitespace-Aware Disambiguation</h3>
+            <p>Every token records <code>space_before</code> and <code>attached_right</code> so TurtleFX needs zero semicolons:</p>
+            <ul>
+              <li><strong>List index vs. block:</strong> <code>alive[i]</code> (attached <code>[</code>) indexes a list; <code>if alive [ ... ]</code> (spaced <code>[</code>) starts a block.</li>
+              <li><strong>Call vs. grouped arg:</strong> <code>at(10, 20) [...]</code> parses parenthesized args; <code>at (10 + k) 20 [...]</code> groups the first bare arg.</li>
+              <li><strong>Negative arg vs. minus:</strong> <code>at 0 -4</code> splits into <code>0</code> and <code>-4</code>, while <code>0 - 4</code> subtracts.</li>
+            </ul>
+          </div>
         </div>
       </section>
 
@@ -150,15 +165,29 @@
 
         <div class="two-col">
           <div class="code-box">
-            <div class="code-title">Variables, Lists &amp; Compound Assignment <button class="copy-btn">Copy</button></div>
-<pre><code>; Global state (persists across every frame)
+            <div class="code-title">Example: Global State &amp; Mutable Lists <button class="copy-btn">Copy</button></div>
+<pre><code>; Global state persists across every frame
 let ship_x = 160
 let enemy_alive = [1, 1, 1, 1, 1, 1]
+let boom_t = [0, 0, 0, 0, 0, 0]
 
-; Scalar &amp; indexed mutation (=, +=, -=, *=, /=)
-ship_x += 125 * dt
-enemy_alive[i] = 0
-boom_t[i] -= dt</code></pre>
+on frame(dt)
+  ; Scalar compound assignments (=, +=, -=, *=, /=)
+  ship_x += 125 * dt
+
+  ; Indexed list reads &amp; writes
+  repeat 6 with i [
+    if enemy_alive[i] == 1 [
+      ; local variable inside loop
+      let ex = 48 + i * 44
+      if abs(ship_x - ex) &lt; 8 [
+        enemy_alive[i] = 0
+        boom_t[i] = 0.35
+      ]
+    ]
+    if boom_t[i] &gt; 0 [ boom_t[i] -= dt ]
+  ]
+end</code></pre>
           </div>
           <div class="callout">
             <h3>Scoping &amp; Built-in Read-Only Vars</h3>
@@ -195,45 +224,56 @@ boom_t[i] -= dt</code></pre>
           </table>
         </div>
 
-        <p>
-          <strong>Positional &amp; Named Arguments:</strong> Every call resolves arguments through <code>eval_arg_named()</code>,
-          checking for a matching <code>name: expr</code> first and falling back to positional order. That means
-          <code>cylinder(4.2, 0.9)</code> and <code>cylinder(radius: 4.2, height: 0.9)</code> are 100% equivalent.
-        </p>
+        <div class="two-col">
+          <div class="code-box">
+            <div class="code-title">Example: Math, Named Args &amp; Input <button class="copy-btn">Copy</button></div>
+<pre><code>; Positional and named arguments work interchangeably:
+cylinder(4.2, 0.9)
+cylinder(radius: 4.2, height: 0.9)
 
-        <div class="cheat-grid doc-fn-grid">
-          <div>
-            <h4>Trigonometry</h4>
-            <ul>
-              <li><code>sin(rad)</code>, <code>cos(rad)</code>, <code>tan(rad)</code></li>
-              <li><code>dsin(deg)</code>, <code>dcos(deg)</code></li>
-              <li><code>rad(deg)</code>, <code>deg(rad)</code></li>
-            </ul>
+; Wrapping modulo keeps scrolling stars on screen
+let sy = (i * 41 + time * 35) % 180
+
+; Smooth pulsing color &amp; clamped player input
+let hue = (time * 60) % 360
+color hsl(hue, 100%, 60%)
+let speed = lerp(60, 180, key("shift"))
+if key("right") [ ship_x = clamp(ship_x + speed * dt, 16, 304) ]</code></pre>
           </div>
-          <div>
-            <h4>Math &amp; Shaping</h4>
-            <ul>
-              <li><code>abs(x)</code>, <code>sqrt(x)</code>, <code>pow(a, b)</code></li>
-              <li><code>floor(x)</code>, <code>ceil(x)</code>, <code>fract(x)</code></li>
-              <li><code>min(a, b)</code>, <code>max(a, b)</code></li>
-              <li><code>clamp(x, lo, hi)</code>, <code>lerp(a, b, t)</code> / <code>mix(...)</code></li>
-              <li><code>rand()</code> (deterministic LCG <code>[0..1)</code>)</li>
-            </ul>
-          </div>
-          <div>
-            <h4>Colors</h4>
-            <ul>
-              <li><code>hsl(h, s, l)</code> (<code>h</code> in 0–360; <code>s</code>/<code>l</code> in 0–1 or 0–100%)</li>
-              <li><code>rgb(r, g, b)</code> (accepts 0–1 or 0–255)</li>
-            </ul>
-          </div>
-          <div>
-            <h4>Input</h4>
-            <ul>
-              <li><code>key("left")</code> — true while held (<code>left/right/up/down/space/enter/shift/a-z/0-9</code>)</li>
-              <li><code>key_pressed("space")</code> — edge-triggered</li>
-              <li><code>mouse_x()</code>, <code>mouse_y()</code></li>
-            </ul>
+          <div class="cheat-grid doc-fn-grid">
+            <div>
+              <h4>Trigonometry</h4>
+              <ul>
+                <li><code>sin(rad)</code>, <code>cos(rad)</code>, <code>tan(rad)</code></li>
+                <li><code>dsin(deg)</code>, <code>dcos(deg)</code></li>
+                <li><code>rad(deg)</code>, <code>deg(rad)</code></li>
+              </ul>
+            </div>
+            <div>
+              <h4>Math &amp; Shaping</h4>
+              <ul>
+                <li><code>abs(x)</code>, <code>sqrt(x)</code>, <code>pow(a, b)</code></li>
+                <li><code>floor(x)</code>, <code>ceil(x)</code>, <code>fract(x)</code></li>
+                <li><code>min(a, b)</code>, <code>max(a, b)</code></li>
+                <li><code>clamp(x, lo, hi)</code>, <code>lerp(a, b, t)</code></li>
+                <li><code>rand()</code> (deterministic LCG)</li>
+              </ul>
+            </div>
+            <div>
+              <h4>Colors</h4>
+              <ul>
+                <li><code>hsl(h, s, l)</code> (<code>h</code>: 0–360)</li>
+                <li><code>rgb(r, g, b)</code> (0–1 or 0–255)</li>
+              </ul>
+            </div>
+            <div>
+              <h4>Host Input</h4>
+              <ul>
+                <li><code>key("left")</code> (held)</li>
+                <li><code>key_pressed("space")</code></li>
+                <li><code>mouse_x()</code>, <code>mouse_y()</code></li>
+              </ul>
+            </div>
           </div>
         </div>
       </section>
@@ -248,8 +288,8 @@ boom_t[i] -= dt</code></pre>
         </p>
 
         <div class="code-box">
-          <div class="code-title">Control Flow &amp; Recursive Procedures <button class="copy-btn">Copy</button></div>
-<pre><code>; Procedure with recursion &amp; early exit
+          <div class="code-title">Example: Recursion, Loops &amp; Conditionals <button class="copy-btn">Copy</button></div>
+<pre><code>; Recursive procedure with early exit via stop
 to tree(len, radius, depth)
   if depth == 0 [
     material emissive(#38bdf8, strength: 2.2)
@@ -264,7 +304,7 @@ to tree(len, radius, depth)
   branch [ roll 255  pitch 26  tree(len * 0.68, radius * 0.72, depth - 1) ]
 end
 
-; Loops &amp; conditionals
+; Conditionals and loops
 if alive_count == 0 [ respawn_t += dt ] else [ active = 1 ]
 repeat 8 with i [ rt i * 45  fd 20 ]
 while step &lt; 10 [ step += 1 ]</code></pre>
@@ -289,43 +329,59 @@ while step &lt; 10 [ step += 1 ]</code></pre>
             </tbody>
           </table>
         </div>
-        <p class="small-note">
-          Notice how declarative shader commands stay 1-arg: in <code>fx crt(scanlines: 0.35, curve: 0.10)</code> or
-          <code>sky gradient(#0b1120, #312e81)</code>, the inner call <code>crt(...)</code> or <code>gradient(...)</code> is parsed as a single <code>EXPR_CALL</code> argument!
-        </p>
       </section>
 
       <!-- STEP 5 -->
       <section id="step-5" class="doc-section">
         <div class="mission-num">STEP 05 • RUNTIME LIFECYCLE</div>
         <h2>Two-Phase Execution: Init vs. Per-Frame</h2>
-        <p>
-          A TurtleFX program separates one-time setup from 60 FPS animation automatically:
-        </p>
-        <ol class="step-list">
-          <li>
-            <strong><code>logo_vm_init(vm, prog)</code></strong> — Scans the top-level AST once to register all
-            <code>to ... end</code> procedures into <code>vm-&gt;procs[]</code> and store the <code>on frame(dt)</code> node.
-          </li>
-          <li>
-            <strong><code>logo_vm_run_init(vm, input)</code></strong> — Runs all top-level statements <strong>once</strong> on
-            load or file hot-reload. Top-level <code>let</code> variables become persistent game state, and <code>mode</code> /
-            <code>palette</code> / <code>fx</code> / <code>sky</code> / <code>light</code> are snapshotted into <code>vm-&gt;base_scene</code>.
-          </li>
-          <li>
-            <strong><code>logo_vm_run_frame(vm, time, dt, input)</code></strong> — Runs every frame:
-            restores <code>vm-&gt;scene = vm-&gt;base_scene</code>, clears primitive counts to <code>0</code>, resets the turtle to the origin,
-            binds <code>dt</code> as a local parameter, and runs <code>on frame(dt)</code> while preserving all global variables.
-          </li>
-        </ol>
+        <div class="two-col">
+          <div>
+            <p>A TurtleFX script separates one-time setup from 60 FPS animation automatically:</p>
+            <ol class="step-list">
+              <li>
+                <strong><code>logo_vm_init</code></strong> — Registers all <code>to ... end</code> procedures and locates <code>on frame(dt)</code>.
+              </li>
+              <li>
+                <strong><code>logo_vm_run_init</code></strong> — Runs top-level statements <strong>once</strong> on load or hot-reload. Top-level <code>let</code> variables become persistent game state; <code>mode</code>, <code>palette</code>, <code>fx</code>, <code>sky</code>, and <code>light</code> are snapshotted into <code>vm-&gt;base_scene</code>.
+              </li>
+              <li>
+                <strong><code>logo_vm_run_frame</code></strong> — Runs 60 times/second: resets <code>vm-&gt;scene</code> from <code>base_scene</code>, clears primitives to <code>0</code>, resets the turtle to the origin, binds <code>dt</code>, and runs <code>on frame(dt)</code> while keeping globals alive.
+              </li>
+            </ol>
+          </div>
+          <div class="code-box">
+            <div class="code-title">Example: Init Once vs. Animate Every Frame <button class="copy-btn">Copy</button></div>
+<pre><code>; --- INIT PHASE (runs ONCE on load/save) ---
+mode 2d
+fx bloom(strength: 0.6)
+let x = 0                ; persists across frames!
+let vx = 180
+
+; --- FRAME PHASE (runs 60x per second) ---
+on frame(dt)
+  clear #06070d
+  x += vx * dt
+  if abs(x) &gt; 300 [ vx = -vx ]   ; bounce!
+
+  color #38bdf8
+  glow 0.8
+  at x 0 [ dot 16 ]
+end</code></pre>
+          </div>
+        </div>
       </section>
 
-      <!-- STEP 6 -->
+      <!-- STEP 6: EXPANDED TURTLE CONTROL COOKBOOK -->
       <section id="step-6" class="doc-section">
-        <div class="mission-num">STEP 06 • TURTLE GEOMETRY</div>
-        <h2>2D, Retro &amp; 3D Turtle Engine</h2>
+        <div class="mission-num">STEP 06 • TURTLE CONTROL COOKBOOK</div>
+        <h2>Controlling the Turtle (2D, Retro &amp; 3D)</h2>
+        <p>
+          Think of the turtle as a tiny robot carrying a pen (in 2D/Retro) or a 3D sculpting nozzle (in 3D).
+          Every movement happens <strong>relative to where the turtle is currently facing</strong>, unless you use <code>at</code> to teleport to world coordinates.
+        </p>
 
-        <h3>Coordinate Systems</h3>
+        <h3>Coordinate Systems by Mode</h3>
         <div class="table-wrap">
           <table>
             <thead>
@@ -334,52 +390,174 @@ while step &lt; 10 [ step += 1 ]</code></pre>
             <tbody>
               <tr><td><code>mode 2d</code></td><td>Screen center</td><td>Up (<code>+Y</code>), <code>rt</code> turns clockwise</td><td>Resolution-independent anti-aliased SDFs.</td></tr>
               <tr><td><code>mode retro(w, h)</code></td><td>Top-left pixel</td><td>Up (<code>-Y</code>), <code>rt</code> turns clockwise</td><td>Snapped to an integer <code>w × h</code> virtual framebuffer.</td></tr>
-              <tr><td><code>mode 3d</code></td><td>World origin <code>(0, 0, 0)</code></td><td><code>fwd = +Z</code>, <code>up = +Y</code>, <code>right = +X</code></td><td>Right-handed orthonormal frame; <code>pitch 90</code> points straight up (<code>+Y</code>).</td></tr>
+              <tr><td><code>mode 3d</code></td><td>World origin <code>(0, 0, 0)</code></td><td><code>fwd = +Z</code>, <code>up = +Y</code>, <code>right = +X</code></td><td>Right-handed orthonormal basis; <code>pitch 90</code> points straight up (<code>+Y</code>).</td></tr>
             </tbody>
           </table>
         </div>
 
-        <h3>2D / Retro Primitives &amp; Ear-Clipping <code>fill [ ... ]</code></h3>
-        <ul>
-          <li><code>fd d</code> / <code>bk d</code>: when <code>pen_down</code> is true, emits a <code>PRIM2D_SEGMENT</code> with current <code>pen_width</code>, <code>color</code>, <code>glow</code>, and <code>blend</code>.</li>
-          <li><code>dot r</code> / <code>circle r</code>: stamps a <code>PRIM2D_CIRCLE</code>.</li>
-          <li><code>rect w h</code>: stamps a <code>PRIM2D_RECT</code> rotated by the turtle's current <code>heading</code>.</li>
-          <li><code>fill [ ... ]</code>: switches on <code>recording_fill</code>, captures every vertex visited by <code>fd</code>/<code>bk</code>, normalizes winding to CCW, and runs <code>flush_fill_polygon()</code> — an <strong>ear-clipping triangulator</strong> that converts even concave shapes (like a notched fighter ship hull) into exact GPU <code>PRIM2D_TRIANGLE</code> primitives.</li>
-        </ul>
-
-        <h3>3D Orthonormal Turtle &amp; SDF CSG</h3>
+        <h3>6.1 Basic Movement &amp; Pen Lifting (<code>fd</code>, <code>bk</code>, <code>rt</code>, <code>lt</code>, <code>pu</code>, <code>pd</code>)</h3>
         <p>
-          Rather than Euler angles (which suffer gimbal lock during recursive tree branching), the 3D turtle carries three unit vectors
-          <code>(fwd, up, right)</code>. Each turn applies <strong>Rodrigues' axis-angle rotation formula</strong>
-          (<code>vec3_rotate_axis</code>) and re-orthogonalizes via cross products:
+          Use <code>pu</code> (pen up) to reposition the turtle without leaving a trail, and <code>pd</code> (pen down) to start drawing again.
+          Here is how you center any regular polygon around the turtle's starting spot:
+        </p>
+        <div class="code-box">
+          <div class="code-title">Example: Centered Polygon &amp; Dashed Trail <button class="copy-btn">Copy</button></div>
+<pre><code>to polygon(sides, radius)
+  ; Step to the top edge with pen UP, then align along the first side
+  pu  fd radius  rt 90 + (180 / sides)  pd
+  let edge = 2 * radius * sin(pi / sides)
+  repeat sides [
+    fd edge
+    rt 360 / sides
+  ]
+end
+
+; Dashed line using pu / pd
+repeat 8 [
+  pd  fd 12
+  pu  fd 8
+]
+pd</code></pre>
+        </div>
+
+        <h3>6.2 Player-Controlled Turtle (Keyboard Steering)</h3>
+        <p>
+          You can turn the turtle itself into a playable character by storing its <code>px</code>, <code>py</code>, and <code>angle</code> in globals, then moving the turtle there each frame with <code>at</code> and <code>rt</code>:
+        </p>
+        <div class="code-box">
+          <div class="code-title">Example: Asteroids-Style Steering Turtle <button class="copy-btn">Copy</button></div>
+<pre><code>mode 2d
+fx bloom(strength: 0.5)
+
+let px = 0
+let py = 0
+let angle = 0
+
+on frame(dt)
+  clear #06070d
+
+  ; Rotate with Left/Right, thrust forward with Up
+  if key("left")  [ angle -= 200 * dt ]
+  if key("right") [ angle += 200 * dt ]
+  if key("up") [
+    px += dsin(angle) * 180 * dt
+    py += dcos(angle) * 180 * dt
+  ]
+
+  ; Place turtle at player position, aim by angle, and draw ship
+  at px py [
+    rt angle
+    color #38bdf8
+    glow 0.7
+    pen_width 2.5
+    fill [
+      pu fd 16 pd
+      rt 150  fd 28
+      rt 120  fd 14
+      rt 120  fd 28
+    ]
+  ]
+end</code></pre>
+        </div>
+
+        <h3>6.3 Scoped Transforms: <code>branch</code>, <code>at</code>, <code>offset</code> &amp; Concave <code>fill</code></h3>
+        <p>
+          In classic 1967 Logo, forgetting to undo a turn breaks everything drawn afterward. TurtleFX solves this with a 64-deep state stack:
+        </p>
+        <div class="two-col">
+          <div class="code-box">
+            <div class="code-title">Example: branch vs. at vs. offset <button class="copy-btn">Copy</button></div>
+<pre><code>; at x y [ ... ] jumps to absolute world coords
+at 0 0 [
+  color #fff1e8
+  ; branch [ ... ] saves &amp; restores pos, angle, color, glow!
+  repeat 8 with i [
+    branch [
+      rt i * 45
+      pu  fd 60  pd
+      color hsl(i * 45, 100%, 60%)
+      fd 35
+      dot 5
+    ]
+  ]
+  ; Turtle is STILL at (0,0) facing 0° with #fff1e8!
+  ; offset dx dy [ ... ] shifts relative to current frame
+  offset 0 -15 [ color #ffa300  dot 4 ]
+]</code></pre>
+          </div>
+          <div class="code-box">
+            <div class="code-title">Example: Concave Fighter Hull with fill [ ... ] <button class="copy-btn">Copy</button></div>
+<pre><code>; fill [ ... ] records every vertex visited by fd/bk
+; and runs ear-clipping triangulation automatically!
+color #fff1e8
+branch [
+  pu  fd 10  pd        ; start at ship nose
+  fill [
+    rt 150  fd 18      ; right wing edge
+    rt 110  fd 6       ; right wing back
+    lt 50   fd 4       ; concave rear notch!
+    rt 100  fd 4
+    lt 50   fd 6       ; left wing back
+    rt 110  fd 18      ; back to nose
+  ]
+]</code></pre>
+          </div>
+        </div>
+
+        <h3>6.4 Steering the 3D Turtle (Airplane Analogy: <code>pitch</code>, <code>yaw</code>, <code>roll</code>)</h3>
+        <p>
+          In <code>mode 3d</code>, imagine sitting inside an airplane cockpit looking along the turtle's <strong>forward</strong> vector:
         </p>
         <ul>
-          <li><code>yaw deg</code> / <code>rt deg</code>: rotates <code>fwd</code> around <code>up</code>.</li>
-          <li><code>pitch deg</code> / <code>up deg</code> / <code>down deg</code>: rotates <code>fwd</code> &amp; <code>up</code> around <code>right</code>.</li>
-          <li><code>roll deg</code>: rotates <code>up</code> around <code>fwd</code> (ideal for spreading 3D tree branches 120° around a trunk!).</li>
+          <li><strong><code>pitch 30</code></strong> (or <code>up 30</code> / <code>down 30</code>) — pulls the nose <strong>up</strong> toward the sky (rotates around the wings/<code>right</code> axis). <code>pitch 90</code> points straight up (<code>+Y</code>).</li>
+          <li><strong><code>yaw 45</code></strong> (or <code>rt 45</code> / <code>lt 45</code>) — steers left/right like a car (rotates around the <code>up</code> axis).</li>
+          <li><strong><code>roll 120</code></strong> — performs a barrel roll around the nose/<code>forward</code> axis without changing which way the nose points!</li>
         </ul>
-        <p>
-          3D shapes stamp <code>Prim3D</code> entries aligned to the turtle's current local basis:
-          <code>sphere(r)</code>, <code>capsule(length, radius)</code> (extrudes from turtle position along <code>fwd</code>),
-          <code>box(w, h, d)</code>, <code>cylinder(radius, height)</code>, <code>cone(radius, height)</code> (tip along <code>+up</code>; use <code>roll 180</code> to invert), and <code>torus(major, minor)</code>.
-        </p>
 
-        <h3>Scoped State Stack (Depth 64)</h3>
-        <ul>
-          <li><code>branch [ ... ]</code> / <code>save [ ... ]</code> — pushes full <code>TurtleState</code> (position, heading/3D basis, pen, color, width, glow, blend, material, <code>smooth_k</code>, <code>op_type</code>), runs the block, and restores everything cleanly.</li>
-          <li><code>at x y [ ... ]</code> / <code>at x y z [ ... ]</code> — pushes state, jumps to absolute world coordinates, resets orientation to default, runs block, and pops.</li>
-          <li><code>offset x y (z) [ ... ]</code> — pushes state, shifts relative to the turtle's current frame, runs block, and pops.</li>
-          <li><code>smooth k [ ... ]</code> — sets <code>op_type = OP3D_SMOOTH_UNION</code> with blend radius <code>k</code> inside the block.</li>
-          <li><code>carve [ ... ]</code> — sets <code>op_type = OP3D_CARVE</code> so primitives inside subtract holes from earlier geometry.</li>
-        </ul>
+        <div class="two-col">
+          <div class="code-box">
+            <div class="code-title">Example: 3D Branching with roll + pitch <button class="copy-btn">Copy</button></div>
+<pre><code>; Start at ground, point straight UP (+Y)
+at 0 0 0 [
+  pitch 90
+  material matte(#6b4423)
+  capsule(2.0, 0.25)   ; extrudes along forward (+Y)
+  fd 2.0               ; fly to top of trunk
+
+  ; Roll around trunk axis, then pitch outward 30°
+  branch [ roll 0    pitch 30  capsule(1.4, 0.18) ]
+  branch [ roll 120  pitch 30  capsule(1.4, 0.18) ]
+  branch [ roll 240  pitch 30  capsule(1.4, 0.18) ]
+]</code></pre>
+          </div>
+          <div class="code-box">
+            <div class="code-title">Example: Sculpting with smooth &amp; carve <button class="copy-btn">Copy</button></div>
+<pre><code>; smooth k [ ... ] melts shapes together like clay
+smooth 0.55 [
+  material matte(#4d7c0f)
+  at 0 0 0 [ cylinder(radius: 4.2, height: 0.9) ]
+  material matte(#645e59)
+  at 0 -1.9 0 [ roll 180  cone(radius: 3.9, height: 3.6) ]
+]
+
+; carve [ ... ] punches clean boolean holes!
+at -2 1.4 0 [
+  material matte(#94a3b8)
+  box(2.1, 2.5, 0.85)
+  carve [
+    at -2 0.45 0 [ pitch 90  capsule(1.3, 0.62) ]
+  ]
+]</code></pre>
+          </div>
+        </div>
       </section>
 
       <!-- STEP 7 -->
       <section id="step-7" class="doc-section">
-        <div class="mission-num">STEP 07 • HIDDEN SHADER CONTROLS</div>
-        <h2>Declarative Modes, Materials &amp; Post-FX</h2>
+        <div class="mission-num">STEP 07 • DECLARATIVE SHADER CONTROLS</div>
+        <h2>Modes, Materials &amp; Post-FX Reference</h2>
         <p>
-          None of these commands expose GLSL — they simply configure fields on <code>SceneIR</code> consumed by the renderer:
+          None of these commands expose GLSL — they configure fields on <code>SceneIR</code> consumed by the hidden shader pipeline:
         </p>
         <div class="table-wrap">
           <table>
@@ -396,21 +574,122 @@ while step &lt; 10 [ step += 1 ]</code></pre>
               <tr><td><code>material</code></td><td><code>matte(#c)</code> · <code>glossy(#c, rough: 0.25)</code> · <code>emissive(#c, strength: 2.0)</code></td><td>Controls Blinn-Phong specular or HDR bloom-triggering glow.</td></tr>
               <tr><td><code>glow</code> / <code>blend</code></td><td><code>glow 0.5</code> · <code>blend alpha | add</code></td><td>2D exponential SDF halo &amp; additive color accumulation.</td></tr>
               <tr><td><code>fx crt</code></td><td><code>crt(scanlines: 0.35, curve: 0.10)</code></td><td>Barrel distortion bezel + sine-wave scanlines.</td></tr>
-              <tr><td><code>fx bloom</code></td><td><code>bloom(strength: 0.55, radius: 10)</code></td><td>Quarter-res bright-pass + 2-pass 9-tap separable Gaussian blur.</td></tr>
+              <tr><td><code>fx bloom</code></td><td><code>bloom(strength: 0.55, radius: 10)</code></td><td>1/3-res bright-pass + 2-pass 9-tap separable Gaussian blur.</td></tr>
               <tr><td><code>fx retro</code></td><td><code>retro(w, h, dither: bayer|off, palette: ...)</code></td><td>Downsamples any 2D/3D scene with 4×4 Bayer ordered dithering.</td></tr>
               <tr><td><code>fx fog</code></td><td><code>fog(color: #hex, near: 8, far: 22)</code></td><td>Linear distance fog in the 3D raymarcher.</td></tr>
               <tr><td><code>fx vignette</code></td><td><code>vignette(0.35)</code></td><td>Radial edge darkening.</td></tr>
             </tbody>
           </table>
         </div>
+
+        <div class="code-box">
+          <div class="code-title">Example: Mixing 3D Raymarching + Retro Handheld Shaders <button class="copy-btn">Copy</button></div>
+<pre><code>mode 3d
+sky gradient(#8bac0f, #306230)
+light sun(dir: [-1, -2, -1], color: #9bbc0f, shadows: soft)
+fx retro(320, 180, dither: bayer, palette: gameboy)
+fx fog(color: #0f380f, near: 8, far: 22)
+fx crt(scanlines: 0.22, curve: 0.06)</code></pre>
+        </div>
       </section>
 
-      <!-- STEP 8 -->
+      <!-- STEP 8: NEW DEDICATED SECTION ON HOW SHADERS & RETRO/2D/3D WORK -->
       <section id="step-8" class="doc-section">
-        <div class="mission-num">STEP 08 • GPU PIPELINE INTERNALS</div>
-        <h2>Under the Hood: From Logo Line to GPU Pixel</h2>
+        <div class="mission-num">STEP 08 • GRAPHICS ARCHITECTURE</div>
+        <h2>How Shaders Work — and How Retro, 2D &amp; 3D Work Here</h2>
+
+        <div class="callout">
+          <h3>First: What Is a Fragment Shader (and Why Does TurtleFX Hide It)?</h3>
+          <p>
+            A GPU renders a <code>1280 × 720</code> screen by running the same tiny program — a <strong>fragment shader</strong> — simultaneously across
+            all <strong>921,600 pixels in parallel</strong>. Each pixel only knows its own <code>(x, y)</code> screen coordinate and must return one final RGB color.
+          </p>
+          <p>
+            That is the exact opposite of how humans draw! Logo is <strong>push-based</strong> ("walk forward 50, turn right 90°"), while shaders are
+            <strong>pull-based</strong> ("for pixel <code>p</code>, compute the shortest mathematical distance to every shape").
+            TurtleFX bridges the two automatically every frame:
+          </p>
+          <ol class="step-list">
+            <li><strong>CPU (<code>logo_vm.c</code>)</strong> runs your Logo script and records a clean list of primitives (lines, triangles, circles, spheres, boxes, capsules) into <code>SceneIR</code>.</li>
+            <li><strong>GPU Upload (<code>renderer.c</code>)</strong> packs that list into a floating-point texture and launches a fullscreen quad running one of our hidden GLSL 330 shaders.</li>
+            <li><strong>GPU Shaders (<code>shaders.h</code>)</strong> evaluate exact <strong>Signed Distance Fields (SDFs)</strong> for every pixel in parallel, then run shared bloom, dithering, palette, and CRT post-processing!</li>
+          </ol>
+        </div>
+
+        <div class="mode-grid">
+          <!-- MODE 1: RETRO -->
+          <div class="mode-card">
+            <div class="mode-badge retro-b">MODE 1 • RETRO PIXEL</div>
+            <h3>How <code>mode retro(w, h)</code> Works</h3>
+            <p>
+              Instead of rendering at 1280×720, Pass 1 creates a tiny offscreen framebuffer (e.g. <code>320×180</code>) with
+              <code>TEXTURE_FILTER_POINT</code> (nearest-neighbor filtering, so pixels stay razor-sharp blocks when scaled up).
+            </p>
+            <ul>
+              <li><strong>Pixel Snapping:</strong> Inside <code>FRAG_SCENE_2D</code> (<code>uIsRetro == 1</code>), each pixel snaps to integer grid centers: <code>p = floor(uv * res) + 0.5</code>.</li>
+              <li><strong>Crisp 1-Bit Edges:</strong> Smooth anti-aliasing is replaced by a hard threshold <code>step(d, 0.0)</code> — a pixel is either 100% inside the shape or outside.</li>
+              <li><strong>Palette &amp; CRT Pass:</strong> Pass 3 (<code>FRAG_POST</code>) maps every color to the nearest entry in the chosen retro palette (e.g. 16-color PICO-8), curves the screen edges with barrel distortion, and modulates rows with sine-wave scanlines.</li>
+            </ul>
+          </div>
+
+          <!-- MODE 2: MODERN 2D -->
+          <div class="mode-card">
+            <div class="mode-badge m2d-b">MODE 2 • MODERN 2D SDF</div>
+            <h3>How <code>mode 2d</code> Works</h3>
+            <p>
+              Pass 1 renders at full window resolution using exact <strong>2D Signed Distance Functions</strong>
+              (<code>sdSegment</code>, <code>sdBox</code>, <code>sdTriangle</code>, circle) — negative inside a shape, zero on the edge, positive outside.
+            </p>
+            <ul>
+              <li><strong>Infinite-Res Anti-Aliasing:</strong> Coverage is <code>1.0 - smoothstep(-0.5, 1.0, d)</code>, producing silky-smooth vector strokes at any zoom level.</li>
+              <li><strong>Neon Glow &amp; Additive Blend:</strong> Shapes with <code>glow &gt; 0</code> add an exponential aura <code>exp(-max(d, 0.0) / radius)</code>. With <code>blend add</code>, overlapping beams brighten like lasers.</li>
+              <li><strong>2-Pass GPU Bloom:</strong> When <code>fx bloom</code> is enabled, Pass 2 extracts bright pixels (<code>lum &gt; 0.55</code>) into a 1/3-res FBO, runs horizontal + vertical Gaussian blurs, and Pass 3 adds the soft halo back on top.</li>
+            </ul>
+          </div>
+
+          <!-- MODE 3: 3D SDF RAYMARCHING -->
+          <div class="mode-card">
+            <div class="mode-badge m3d-b">MODE 3 • 3D RAYMARCHING</div>
+            <h3>How <code>mode 3d</code> Works</h3>
+            <p>
+              There are <strong>zero 3D polygon meshes</strong>! Instead, <code>FRAG_SCENE_3D</code> shoots a 3D ray from <code>uCamPos</code> through each pixel and marches forward using <strong>Sphere Tracing</strong>:
+            </p>
+            <ul>
+              <li><strong>March Loop (up to 84 steps):</strong> At point <code>p = ro + rd * t</code>, ask <code>mapScene(p)</code> for the safe distance <code>h.d</code> to the nearest surface. Advance <code>t += h.d</code> until <code>h.d &lt; 0.0025</code> (surface hit!).</li>
+              <li><strong>Local Turtle Space + CSG:</strong> Each primitive converts <code>p</code> into the turtle's <code>(right, up, fwd)</code> axes. Shapes combine via <code>min</code> (union), polynomial <code>smin</code> (<code>smooth</code> clay merge), or <code>max(d, -dPrim)</code> (<code>carve</code> subtraction).</li>
+              <li><strong>Lighting &amp; Shadows:</strong> Hits compute surface normals via 4-point tetrahedron gradients, march a second ray toward the sun for <strong>soft shadows</strong>, sample 4 nearby points for <strong>ambient occlusion</strong>, and apply emissive boost + fog.</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="callout">
+          <h3>Why Cross-Mode Retro 3D Takes Only Two Lines</h3>
+          <p>
+            Because <strong>Pass 1 (Scene)</strong> and <strong>Pass 3 (Post-FX)</strong> are decoupled in <code>renderer.c</code>,
+            adding <code>fx retro(320, 180, dither: bayer, palette: gameboy)</code> to a <code>mode 3d</code> script simply:
+          </p>
+          <ol class="step-list">
+            <li>Resizes Pass 1's <code>scene_rt</code> to <code>320×180</code> with <code>TEXTURE_FILTER_POINT</code> (running the 3D raymarcher on 16× fewer pixels!).</li>
+            <li>Passes that low-res 3D image into <code>FRAG_POST</code>, which perturbs each pixel by a <code>4×4</code> Bayer dither matrix before snapping luminance to the 4 classic GameBoy green shades!</li>
+          </ol>
+        </div>
+
+        <h3>The 3-Pass Frame Pipeline (Shared by Every Mode)</h3>
+        <div class="pipeline-bar">
+          <div class="pipe-node"><strong>Pass 1: Scene SDF</strong><span><code>FRAG_SCENE_2D</code> or <code>FRAG_SCENE_3D</code> → <code>scene_rt</code></span></div>
+          <div class="pipe-arrow">→</div>
+          <div class="pipe-node"><strong>Pass 2: Bloom (opt.)</strong><span><code>FRAG_BLOOM_EXTRACT</code> + H/V <code>FRAG_BLUR</code> → <code>bloom_a</code></span></div>
+          <div class="pipe-arrow">→</div>
+          <div class="pipe-node"><strong>Pass 3: Post-FX</strong><span><code>FRAG_POST</code> (Tone Map, Bayer Dither, Palette, CRT, Vignette) → Screen</span></div>
+        </div>
+      </section>
+
+      <!-- STEP 9 -->
+      <section id="step-9" class="doc-section">
+        <div class="mission-num">STEP 09 • GPU TEXTURE &amp; GLSL INTERNALS</div>
+        <h2>CPU-to-GPU Data Packing (`RGBA32F` Textures)</h2>
         <p>
-          Standard OpenGL 3.3 uniform arrays have strict size caps. Instead,
+          OpenGL 3.3 uniform arrays hit small hardware size limits. Instead,
           <a href="https://github.com/xyzzyapps/turtlefx/blob/main/src/renderer.c" target="_blank" rel="noopener"><code>src/renderer.c</code></a>
           packs every emitted primitive into floating-point <code>RGBA32F</code> data textures (<code>TEXTURE_FILTER_POINT</code>)
           and uploads them once per frame via <code>UpdateTexture()</code>. The fragment shaders read primitive <code>i</code> with
@@ -438,20 +717,11 @@ while step &lt; 10 [ step += 1 ]</code></pre>
             </ul>
           </div>
         </div>
-
-        <h3>The 5 Hidden GLSL 330 Shaders (<code>src/shaders.h</code>)</h3>
-        <ol class="step-list">
-          <li><strong><code>FRAG_SCENE_2D</code></strong> — Loops <code>0..uPrimCount</code>, evaluates exact 2D SDFs (<code>sdSegment</code>, <code>sdBox</code>, <code>sdTriangle</code>, circle), computes either smooth anti-aliased coverage + exponential halo (2D mode) or integer-snapped <code>step(d, 0.0)</code> (Retro mode).</li>
-          <li><strong><code>FRAG_SCENE_3D</code></strong> — Sphere-traces up to 84 steps per pixel against <code>mapScene(p)</code>. Transforms <code>p</code> into each primitive's local <code>(right, up, fwd)</code> coordinates, combines with hard <code>min</code>, polynomial <code>smin</code> (<code>smooth</code>), or <code>max(res.d, -d)</code> (<code>carve</code>), then shades hits with 4-tap tetrahedron normals, 28-step soft shadows, 4-tap AO, rim light, specular, and fog.</li>
-          <li><strong><code>FRAG_BLOOM_EXTRACT</code></strong> — Extracts pixels above luminance threshold <code>0.55</code> into a 1/3-resolution FBO.</li>
-          <li><strong><code>FRAG_BLUR</code></strong> — Runs horizontal then vertical 9-tap separable Gaussian blur across ping-pong FBOs <code>bloom_a</code> / <code>bloom_b</code>.</li>
-          <li><strong><code>FRAG_POST</code></strong> — Shared across <em>all</em> modes: applies CRT barrel warp, adds bloom, soft ACES-like tone-mapping (<code>c / (1 + 0.25*c)</code>), optional 4×4 Bayer dithering, palette quantization, scanlines, and vignette.</li>
-        </ol>
       </section>
 
-      <!-- STEP 9 -->
-      <section id="step-9" class="doc-section">
-        <div class="mission-num">STEP 09 • LIMITS &amp; SOURCE MAP</div>
+      <!-- STEP 10 -->
+      <section id="step-10" class="doc-section">
+        <div class="mission-num">STEP 10 • LIMITS &amp; SOURCE MAP</div>
         <h2>Engine Limits &amp; Codebase Map</h2>
 
         <div class="two-col">

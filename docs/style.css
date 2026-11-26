@@ -506,6 +506,43 @@ tbody tr:last-child td { border-bottom: none; }
 
 .doc-fn-grid { grid-template-columns: repeat(2, 1fr); }
 
+.mode-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+  margin: 18px 0;
+}
+
+.mode-card {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 16px;
+  font-size: 0.9rem;
+}
+
+.mode-card h3 { margin-top: 6px; font-size: 1.02rem; }
+.mode-card ul { padding-left: 18px; margin: 10px 0 0; color: var(--muted); }
+.mode-card li { margin-bottom: 7px; }
+
+.mode-badge {
+  display: inline-block;
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  font-weight: 700;
+  padding: 3px 8px;
+  border-radius: 999px;
+  letter-spacing: 0.05em;
+}
+
+.retro-b { background: rgba(251, 191, 36, 0.14); color: var(--amber); border: 1px solid rgba(251, 191, 36, 0.35); }
+.m2d-b   { background: rgba(56, 189, 248, 0.14); color: var(--cyan);  border: 1px solid rgba(56, 189, 248, 0.35); }
+.m3d-b   { background: rgba(244, 114, 182, 0.14); color: var(--pink); border: 1px solid rgba(244, 114, 182, 0.35); }
+
+@media (max-width: 960px) {
+  .mode-grid { grid-template-columns: 1fr; }
+}
+
 @media (max-width: 860px) {
   .hero-grid, .two-col, .playground-grid, .doc-layout { grid-template-columns: 1fr; }
   .doc-toc { position: static; }
