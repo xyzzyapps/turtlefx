@@ -1,0 +1,512 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>TurtleFX Language Reference — Complete Step-by-Step Documentation</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <nav class="topbar">
+    <div class="container nav-inner">
+      <a class="brand" href="index.html">🐢 TurtleFX</a>
+      <div class="nav-links">
+        <a href="index.html#playground">Playground</a>
+        <a href="index.html#mission-1">Tutorial</a>
+        <a href="language.html" class="active-link">Language Docs</a>
+        <a href="index.html#install">Install</a>
+        <a class="gh-pill" href="https://github.com/xyzzyapps/turtlefx" target="_blank" rel="noopener">GitHub ↗</a>
+      </div>
+    </div>
+  </nav>
+
+  <header class="doc-hero">
+    <div class="container">
+      <div class="badge">Complete Language &amp; Internals Reference • C11 + raylib 5.5 + GLSL 330</div>
+      <h1>The <span class="grad">TurtleFX Modern Logo</span> Specification</h1>
+      <p class="lead">
+        A single-page, step-by-step reference covering every piece of the TurtleFX Logo dialect —
+        from lexical rules, list indexing, and 3D Rodrigues turtle rotations to how statements compile
+        into <code>RGBA32F</code> GPU textures and hidden OpenGL 3.3 shaders.
+      </p>
+
+      <div class="pipeline-bar" aria-label="Compilation and rendering pipeline">
+        <div class="pipe-node"><strong>1. .logo Source</strong><span>Text file</span></div>
+        <div class="pipe-arrow">→</div>
+        <div class="pipe-node"><strong>2. Lexer &amp; Parser</strong><span><code>logo_parser.c</code></span></div>
+        <div class="pipe-arrow">→</div>
+        <div class="pipe-node"><strong>3. AST &amp; VM</strong><span><code>logo_vm.c</code></span></div>
+        <div class="pipe-arrow">→</div>
+        <div class="pipe-node"><strong>4. SceneIR</strong><span>Flat 2D/3D prims</span></div>
+        <div class="pipe-arrow">→</div>
+        <div class="pipe-node"><strong>5. RGBA32F Upload</strong><span><code>renderer.c</code></span></div>
+        <div class="pipe-arrow">→</div>
+        <div class="pipe-node"><strong>6. 5 GLSL Shaders</strong><span><code>shaders.h</code></span></div>
+      </div>
+    </div>
+  </header>
+
+  <div class="container doc-layout">
+    <!-- STICKY TABLE OF CONTENTS -->
+    <aside class="doc-toc" aria-label="Table of contents">
+      <div class="toc-title">ON THIS PAGE</div>
+      <a href="#step-1">1. Lexical Rules &amp; Tokens</a>
+      <a href="#step-2">2. Types, Variables &amp; Lists</a>
+      <a href="#step-3">3. Expressions &amp; Built-ins</a>
+      <a href="#step-4">4. Statements &amp; Control Flow</a>
+      <a href="#step-5">5. Init vs. Frame Lifecycle</a>
+      <a href="#step-6">6. 2D, Retro &amp; 3D Turtle</a>
+      <a href="#step-7">7. Declarative Shaders &amp; FX</a>
+      <a href="#step-8">8. Under the Hood (GPU)</a>
+      <a href="#step-9">9. Limits &amp; Source Map</a>
+    </aside>
+
+    <!-- MAIN DOCUMENTATION CONTENT -->
+    <main class="doc-content">
+
+      <!-- STEP 1 -->
+      <section id="step-1" class="doc-section">
+        <div class="mission-num">STEP 01 • LEXER</div>
+        <h2>Lexical Structure &amp; Tokens</h2>
+        <p>
+          Every script begins in <code>lex_next()</code> inside
+          <a href="https://github.com/xyzzyapps/turtlefx/blob/main/src/logo_parser.c" target="_blank" rel="noopener"><code>src/logo_parser.c</code></a>.
+          The dialect keeps classic Logo's clean, semicolon-free look while supporting modern literals.
+        </p>
+
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th>Construct</th><th>Examples</th><th>Lexer Behavior</th></tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><strong>Comments</strong></td>
+                <td><code>; classic logo</code><br><code>// modern style</code></td>
+                <td>Ignored through the end of the line.</td>
+              </tr>
+              <tr>
+                <td><strong>Numbers</strong></td>
+                <td><code>42</code>, <code>3.14</code>, <code>100%</code></td>
+                <td>Parsed as IEEE-754 <code>double</code>. Trailing <code>%</code> is accepted inside argument lists like <code>hsl(h, 100%, 60%)</code> when not followed by an operand.</td>
+              </tr>
+              <tr>
+                <td><strong>Hex Colors</strong></td>
+                <td><code>#f0a</code>, <code>#38bdf8</code>, <code>#ff004dcc</code></td>
+                <td>Supports 3, 6, or 8 hex digits; converted immediately to normalized RGBA floats <code>[0..1]</code>.</td>
+              </tr>
+              <tr>
+                <td><strong>Strings</strong></td>
+                <td><code>"left"</code>, <code>"space"</code></td>
+                <td>Double-quoted single-line strings (max 63 chars), primarily used by <code>key(...)</code>.</td>
+              </tr>
+              <tr>
+                <td><strong>Identifiers</strong></td>
+                <td><code>fd</code>, <code>FD</code>, <code>ship_x</code>, <code>2d</code>, <code>3d</code></td>
+                <td>Case-insensitive (lowercased by lexer). Special tokens <code>2d</code> and <code>3d</code> lex as identifiers so <code>mode 3d</code> parses cleanly.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="callout">
+          <h3>Whitespace-Aware Disambiguation (Zero-Semicolon Magic)</h3>
+          <p>
+            Every token records two flags: <code>space_before</code> (was there whitespace before this token?) and
+            <code>attached_right</code> (is the next character immediately a digit or <code>.</code>?). This resolves three classic Logo ambiguities without extra punctuation:
+          </p>
+          <ul>
+            <li><strong>List index vs. block:</strong> <code>enemy_alive[i]</code> (no space before <code>[</code>) parses as <em>indexing</em>; <code>if alive [ ... ]</code> (space before <code>[</code>) starts a <em>block</em>.</li>
+            <li><strong>Call vs. grouped bare arg:</strong> <code>at(10, 20) [...]</code> (no space before <code>(</code>) parses as a parenthesized call; <code>at (10 + k * 5) 172 [...]</code> (space before <code>(</code>) parses <code>(10 + k * 5)</code> as the first space-separated coordinate.</li>
+            <li><strong>Negative bare arg vs. subtraction:</strong> <code>at 0 -4 [...]</code> (space before <code>-</code>, digit attached on right) splits into two args <code>0</code> and <code>-4</code>, while <code>0 - 4</code> performs subtraction.</li>
+          </ul>
+        </div>
+      </section>
+
+      <!-- STEP 2 -->
+      <section id="step-2" class="doc-section">
+        <div class="mission-num">STEP 02 • VALUES &amp; MEMORY</div>
+        <h2>Runtime Types, Variables &amp; Lists</h2>
+        <p>
+          Defined in <a href="https://github.com/xyzzyapps/turtlefx/blob/main/src/logo_lang.h" target="_blank" rel="noopener"><code>src/logo_lang.h</code></a>
+          (<code>LogoVal</code>) and managed in <a href="https://github.com/xyzzyapps/turtlefx/blob/main/src/logo_vm.c" target="_blank" rel="noopener"><code>src/logo_vm.c</code></a>.
+          The VM is dynamically typed around 5 value kinds:
+        </p>
+
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th>Type</th><th>Representation</th><th>Notes</th></tr>
+            </thead>
+            <tbody>
+              <tr><td><code>VAL_NUM</code></td><td><code>double num</code></td><td>All numbers &amp; booleans (<code>0</code> is falsy, non-zero is truthy).</td></tr>
+              <tr><td><code>VAL_COLOR</code></td><td><code>float vec[4]</code></td><td>RGBA color produced by <code>#hex</code>, <code>hsl()</code>, or <code>rgb()</code>.</td></tr>
+              <tr><td><code>VAL_VEC3</code> / List</td><td><code>float vec[64]</code> + <code>list_len</code></td><td>Used for 3D vectors (<code>[-1, -2, -1]</code>) and 1D mutable numeric lists (up to 64 elements).</td></tr>
+              <tr><td><code>VAL_STR</code></td><td><code>char str[64]</code></td><td>Quoted string literals such as <code>"space"</code>.</td></tr>
+              <tr><td><code>VAL_SYM</code></td><td><code>char str[64]</code></td><td>Any unknown bare identifier evaluates to a symbolic atom (e.g. <code>pico8</code>, <code>gameboy</code>, <code>bayer</code>, <code>add</code>, <code>soft</code>), keeping shader options quote-free.</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="two-col">
+          <div class="code-box">
+            <div class="code-title">Variables, Lists &amp; Compound Assignment <button class="copy-btn">Copy</button></div>
+<pre><code>; Global state (persists across every frame)
+let ship_x = 160
+let enemy_alive = [1, 1, 1, 1, 1, 1]
+
+; Scalar &amp; indexed mutation (=, +=, -=, *=, /=)
+ship_x += 125 * dt
+enemy_alive[i] = 0
+boom_t[i] -= dt</code></pre>
+          </div>
+          <div class="callout">
+            <h3>Scoping &amp; Built-in Read-Only Vars</h3>
+            <ul>
+              <li><strong>Globals:</strong> <code>let</code> at top-level lives in <code>vm-&gt;globals</code> and persists across frames.</li>
+              <li><strong>Locals:</strong> Procedure parameters, <code>let</code> inside <code>to ... end</code>, and <code>repeat ... with i</code> iterators live on the stack <code>vm-&gt;locals</code> and are popped on exit.</li>
+              <li><strong>Built-ins:</strong> <code>time</code> (seconds), <code>dt</code> (delta time), <code>pi</code>, <code>width</code>, <code>height</code>, <code>true</code>/<code>on</code> (<code>1</code>), <code>false</code>/<code>off</code> (<code>0</code>).</li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <!-- STEP 3 -->
+      <section id="step-3" class="doc-section">
+        <div class="mission-num">STEP 03 • EXPRESSIONS</div>
+        <h2>Operators, Named Arguments &amp; Built-in Functions</h2>
+        <p>
+          Expressions use standard recursive-descent precedence (lowest to highest):
+        </p>
+
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th>Precedence</th><th>Operators</th><th>Behavior</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>1 (lowest)</td><td><code>or</code></td><td>Short-circuit logical OR (returns <code>1</code> or <code>0</code>).</td></tr>
+              <tr><td>2</td><td><code>and</code></td><td>Short-circuit logical AND (returns <code>1</code> or <code>0</code>).</td></tr>
+              <tr><td>3</td><td><code>==</code>, <code>!=</code>, <code>&lt;</code>, <code>&lt;=</code>, <code>&gt;</code>, <code>&gt;=</code></td><td>Numeric comparison (<code>==</code> uses <code>1e-6</code> float epsilon).</td></tr>
+              <tr><td>4</td><td><code>+</code>, <code>-</code></td><td>Addition and subtraction.</td></tr>
+              <tr><td>5</td><td><code>*</code>, <code>/</code>, <code>%</code></td><td>Multiply, safe divide (<code>0</code> on divide-by-zero), and <strong>positive-wrapping modulo</strong> (negative inputs wrap cleanly into <code>[0, r)</code> for scrolling starfields).</td></tr>
+              <tr><td>6 (highest)</td><td><code>-x</code>, <code>!x</code>, <code>not x</code></td><td>Unary negation and logical NOT.</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <p>
+          <strong>Positional &amp; Named Arguments:</strong> Every call resolves arguments through <code>eval_arg_named()</code>,
+          checking for a matching <code>name: expr</code> first and falling back to positional order. That means
+          <code>cylinder(4.2, 0.9)</code> and <code>cylinder(radius: 4.2, height: 0.9)</code> are 100% equivalent.
+        </p>
+
+        <div class="cheat-grid doc-fn-grid">
+          <div>
+            <h4>Trigonometry</h4>
+            <ul>
+              <li><code>sin(rad)</code>, <code>cos(rad)</code>, <code>tan(rad)</code></li>
+              <li><code>dsin(deg)</code>, <code>dcos(deg)</code></li>
+              <li><code>rad(deg)</code>, <code>deg(rad)</code></li>
+            </ul>
+          </div>
+          <div>
+            <h4>Math &amp; Shaping</h4>
+            <ul>
+              <li><code>abs(x)</code>, <code>sqrt(x)</code>, <code>pow(a, b)</code></li>
+              <li><code>floor(x)</code>, <code>ceil(x)</code>, <code>fract(x)</code></li>
+              <li><code>min(a, b)</code>, <code>max(a, b)</code></li>
+              <li><code>clamp(x, lo, hi)</code>, <code>lerp(a, b, t)</code> / <code>mix(...)</code></li>
+              <li><code>rand()</code> (deterministic LCG <code>[0..1)</code>)</li>
+            </ul>
+          </div>
+          <div>
+            <h4>Colors</h4>
+            <ul>
+              <li><code>hsl(h, s, l)</code> (<code>h</code> in 0–360; <code>s</code>/<code>l</code> in 0–1 or 0–100%)</li>
+              <li><code>rgb(r, g, b)</code> (accepts 0–1 or 0–255)</li>
+            </ul>
+          </div>
+          <div>
+            <h4>Input</h4>
+            <ul>
+              <li><code>key("left")</code> — true while held (<code>left/right/up/down/space/enter/shift/a-z/0-9</code>)</li>
+              <li><code>key_pressed("space")</code> — edge-triggered</li>
+              <li><code>mouse_x()</code>, <code>mouse_y()</code></li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <!-- STEP 4 -->
+      <section id="step-4" class="doc-section">
+        <div class="mission-num">STEP 04 • GRAMMAR &amp; FLOW</div>
+        <h2>Statements, Blocks &amp; Chained Bare Commands</h2>
+        <p>
+          TurtleFX mixes two familiar block styles: square brackets <code>[ ... ]</code> for inline control flow and scoped
+          turtle modifiers, and <code>... end</code> for top-level procedure and frame declarations.
+        </p>
+
+        <div class="code-box">
+          <div class="code-title">Control Flow &amp; Recursive Procedures <button class="copy-btn">Copy</button></div>
+<pre><code>; Procedure with recursion &amp; early exit
+to tree(len, radius, depth)
+  if depth == 0 [
+    material emissive(#38bdf8, strength: 2.2)
+    sphere(radius * 2.4)
+    stop
+  ]
+  material matte(#6b4423)
+  capsule(len, radius)
+  fd len
+  branch [ roll 15   pitch 28  tree(len * 0.72, radius * 0.72, depth - 1) ]
+  branch [ roll 135  pitch 30  tree(len * 0.70, radius * 0.72, depth - 1) ]
+  branch [ roll 255  pitch 26  tree(len * 0.68, radius * 0.72, depth - 1) ]
+end
+
+; Loops &amp; conditionals
+if alive_count == 0 [ respawn_t += dt ] else [ active = 1 ]
+repeat 8 with i [ rt i * 45  fd 20 ]
+while step &lt; 10 [ step += 1 ]</code></pre>
+        </div>
+
+        <h3>How Chained Multi-Command Lines Work</h3>
+        <p>
+          Classic Logo lets you chain statements on a single line: <code>pu  fd radius  rt 90 + (180 / sides)  pd</code>.
+          When a command is written <em>without</em> attached parentheses, <code>bare_command_arity()</code> tells the parser exactly how many expressions to consume before the next command starts:
+        </p>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th>Arity</th><th>Bare Commands</th></tr>
+            </thead>
+            <tbody>
+              <tr><td><strong>0 args</strong></td><td><code>pu</code>, <code>penup</code>, <code>pd</code>, <code>pendown</code>, <code>home</code>, <code>stop</code>, <code>return</code></td></tr>
+              <tr><td><strong>1 arg</strong></td><td><code>fd</code>/<code>forward</code>, <code>bk</code>/<code>back</code>, <code>rt</code>/<code>right</code>, <code>lt</code>/<code>left</code>, <code>pitch</code>/<code>up</code>, <code>down</code>, <code>yaw</code>, <code>roll</code>, <code>color</code>, <code>pen_width</code>/<code>pw</code>, <code>glow</code>, <code>blend</code>, <code>clear</code>, <code>palette</code>, <code>dot</code>, <code>circle</code>, <code>sphere</code>, <code>mode</code>, <code>sky</code>, <code>material</code>, <code>light</code>, <code>fx</code></td></tr>
+              <tr><td><strong>2 args</strong></td><td><code>rect</code>, <code>capsule</code>, <code>cylinder</code>, <code>cone</code>, <code>torus</code></td></tr>
+              <tr><td><strong>3 args</strong></td><td><code>box</code></td></tr>
+              <tr><td><strong>Block cmds</strong></td><td><code>branch [...]</code>, <code>save [...]</code>, <code>fill [...]</code>, <code>carve [...]</code>, <code>smooth k [...]</code>, <code>at x y (z) [...]</code>, <code>offset x y (z) [...]</code></td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="small-note">
+          Notice how declarative shader commands stay 1-arg: in <code>fx crt(scanlines: 0.35, curve: 0.10)</code> or
+          <code>sky gradient(#0b1120, #312e81)</code>, the inner call <code>crt(...)</code> or <code>gradient(...)</code> is parsed as a single <code>EXPR_CALL</code> argument!
+        </p>
+      </section>
+
+      <!-- STEP 5 -->
+      <section id="step-5" class="doc-section">
+        <div class="mission-num">STEP 05 • RUNTIME LIFECYCLE</div>
+        <h2>Two-Phase Execution: Init vs. Per-Frame</h2>
+        <p>
+          A TurtleFX program separates one-time setup from 60 FPS animation automatically:
+        </p>
+        <ol class="step-list">
+          <li>
+            <strong><code>logo_vm_init(vm, prog)</code></strong> — Scans the top-level AST once to register all
+            <code>to ... end</code> procedures into <code>vm-&gt;procs[]</code> and store the <code>on frame(dt)</code> node.
+          </li>
+          <li>
+            <strong><code>logo_vm_run_init(vm, input)</code></strong> — Runs all top-level statements <strong>once</strong> on
+            load or file hot-reload. Top-level <code>let</code> variables become persistent game state, and <code>mode</code> /
+            <code>palette</code> / <code>fx</code> / <code>sky</code> / <code>light</code> are snapshotted into <code>vm-&gt;base_scene</code>.
+          </li>
+          <li>
+            <strong><code>logo_vm_run_frame(vm, time, dt, input)</code></strong> — Runs every frame:
+            restores <code>vm-&gt;scene = vm-&gt;base_scene</code>, clears primitive counts to <code>0</code>, resets the turtle to the origin,
+            binds <code>dt</code> as a local parameter, and runs <code>on frame(dt)</code> while preserving all global variables.
+          </li>
+        </ol>
+      </section>
+
+      <!-- STEP 6 -->
+      <section id="step-6" class="doc-section">
+        <div class="mission-num">STEP 06 • TURTLE GEOMETRY</div>
+        <h2>2D, Retro &amp; 3D Turtle Engine</h2>
+
+        <h3>Coordinate Systems</h3>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th>Mode</th><th>Origin <code>(0, 0)</code></th><th>Default Heading (<code>0°</code>)</th><th>Notes</th></tr>
+            </thead>
+            <tbody>
+              <tr><td><code>mode 2d</code></td><td>Screen center</td><td>Up (<code>+Y</code>), <code>rt</code> turns clockwise</td><td>Resolution-independent anti-aliased SDFs.</td></tr>
+              <tr><td><code>mode retro(w, h)</code></td><td>Top-left pixel</td><td>Up (<code>-Y</code>), <code>rt</code> turns clockwise</td><td>Snapped to an integer <code>w × h</code> virtual framebuffer.</td></tr>
+              <tr><td><code>mode 3d</code></td><td>World origin <code>(0, 0, 0)</code></td><td><code>fwd = +Z</code>, <code>up = +Y</code>, <code>right = +X</code></td><td>Right-handed orthonormal frame; <code>pitch 90</code> points straight up (<code>+Y</code>).</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3>2D / Retro Primitives &amp; Ear-Clipping <code>fill [ ... ]</code></h3>
+        <ul>
+          <li><code>fd d</code> / <code>bk d</code>: when <code>pen_down</code> is true, emits a <code>PRIM2D_SEGMENT</code> with current <code>pen_width</code>, <code>color</code>, <code>glow</code>, and <code>blend</code>.</li>
+          <li><code>dot r</code> / <code>circle r</code>: stamps a <code>PRIM2D_CIRCLE</code>.</li>
+          <li><code>rect w h</code>: stamps a <code>PRIM2D_RECT</code> rotated by the turtle's current <code>heading</code>.</li>
+          <li><code>fill [ ... ]</code>: switches on <code>recording_fill</code>, captures every vertex visited by <code>fd</code>/<code>bk</code>, normalizes winding to CCW, and runs <code>flush_fill_polygon()</code> — an <strong>ear-clipping triangulator</strong> that converts even concave shapes (like a notched fighter ship hull) into exact GPU <code>PRIM2D_TRIANGLE</code> primitives.</li>
+        </ul>
+
+        <h3>3D Orthonormal Turtle &amp; SDF CSG</h3>
+        <p>
+          Rather than Euler angles (which suffer gimbal lock during recursive tree branching), the 3D turtle carries three unit vectors
+          <code>(fwd, up, right)</code>. Each turn applies <strong>Rodrigues' axis-angle rotation formula</strong>
+          (<code>vec3_rotate_axis</code>) and re-orthogonalizes via cross products:
+        </p>
+        <ul>
+          <li><code>yaw deg</code> / <code>rt deg</code>: rotates <code>fwd</code> around <code>up</code>.</li>
+          <li><code>pitch deg</code> / <code>up deg</code> / <code>down deg</code>: rotates <code>fwd</code> &amp; <code>up</code> around <code>right</code>.</li>
+          <li><code>roll deg</code>: rotates <code>up</code> around <code>fwd</code> (ideal for spreading 3D tree branches 120° around a trunk!).</li>
+        </ul>
+        <p>
+          3D shapes stamp <code>Prim3D</code> entries aligned to the turtle's current local basis:
+          <code>sphere(r)</code>, <code>capsule(length, radius)</code> (extrudes from turtle position along <code>fwd</code>),
+          <code>box(w, h, d)</code>, <code>cylinder(radius, height)</code>, <code>cone(radius, height)</code> (tip along <code>+up</code>; use <code>roll 180</code> to invert), and <code>torus(major, minor)</code>.
+        </p>
+
+        <h3>Scoped State Stack (Depth 64)</h3>
+        <ul>
+          <li><code>branch [ ... ]</code> / <code>save [ ... ]</code> — pushes full <code>TurtleState</code> (position, heading/3D basis, pen, color, width, glow, blend, material, <code>smooth_k</code>, <code>op_type</code>), runs the block, and restores everything cleanly.</li>
+          <li><code>at x y [ ... ]</code> / <code>at x y z [ ... ]</code> — pushes state, jumps to absolute world coordinates, resets orientation to default, runs block, and pops.</li>
+          <li><code>offset x y (z) [ ... ]</code> — pushes state, shifts relative to the turtle's current frame, runs block, and pops.</li>
+          <li><code>smooth k [ ... ]</code> — sets <code>op_type = OP3D_SMOOTH_UNION</code> with blend radius <code>k</code> inside the block.</li>
+          <li><code>carve [ ... ]</code> — sets <code>op_type = OP3D_CARVE</code> so primitives inside subtract holes from earlier geometry.</li>
+        </ul>
+      </section>
+
+      <!-- STEP 7 -->
+      <section id="step-7" class="doc-section">
+        <div class="mission-num">STEP 07 • HIDDEN SHADER CONTROLS</div>
+        <h2>Declarative Modes, Materials &amp; Post-FX</h2>
+        <p>
+          None of these commands expose GLSL — they simply configure fields on <code>SceneIR</code> consumed by the renderer:
+        </p>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th>Command</th><th>Parameters / Options</th><th>GPU Shader Effect</th></tr>
+            </thead>
+            <tbody>
+              <tr><td><code>mode</code></td><td><code>2d</code> · <code>3d</code> · <code>retro(w, h)</code></td><td>Selects 2D SDF, 3D raymarcher, or low-res pixel target.</td></tr>
+              <tr><td><code>palette</code></td><td><code>pico8</code> · <code>gameboy</code> · <code>cga</code> · <code>sunset</code> · <code>none</code></td><td>Nearest-color RGB/luma quantization in <code>FRAG_POST</code>.</td></tr>
+              <tr><td><code>clear</code></td><td><code>#hex</code> or color expr</td><td>2D / Retro background clear color.</td></tr>
+              <tr><td><code>sky</code></td><td><code>#hex</code> or <code>gradient(#top, #bottom)</code></td><td>3D background sky gradient.</td></tr>
+              <tr><td><code>light</code></td><td><code>sun(dir: [x,y,z], color: #hex, shadows: soft|off)</code></td><td>Directional sun + 28-step raymarched soft shadows.</td></tr>
+              <tr><td><code>camera</code></td><td><code>camera(pos: [x,y,z], look: [x,y,z], fov: 48)</code></td><td>Builds the 3D pinhole camera ray basis.</td></tr>
+              <tr><td><code>material</code></td><td><code>matte(#c)</code> · <code>glossy(#c, rough: 0.25)</code> · <code>emissive(#c, strength: 2.0)</code></td><td>Controls Blinn-Phong specular or HDR bloom-triggering glow.</td></tr>
+              <tr><td><code>glow</code> / <code>blend</code></td><td><code>glow 0.5</code> · <code>blend alpha | add</code></td><td>2D exponential SDF halo &amp; additive color accumulation.</td></tr>
+              <tr><td><code>fx crt</code></td><td><code>crt(scanlines: 0.35, curve: 0.10)</code></td><td>Barrel distortion bezel + sine-wave scanlines.</td></tr>
+              <tr><td><code>fx bloom</code></td><td><code>bloom(strength: 0.55, radius: 10)</code></td><td>Quarter-res bright-pass + 2-pass 9-tap separable Gaussian blur.</td></tr>
+              <tr><td><code>fx retro</code></td><td><code>retro(w, h, dither: bayer|off, palette: ...)</code></td><td>Downsamples any 2D/3D scene with 4×4 Bayer ordered dithering.</td></tr>
+              <tr><td><code>fx fog</code></td><td><code>fog(color: #hex, near: 8, far: 22)</code></td><td>Linear distance fog in the 3D raymarcher.</td></tr>
+              <tr><td><code>fx vignette</code></td><td><code>vignette(0.35)</code></td><td>Radial edge darkening.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- STEP 8 -->
+      <section id="step-8" class="doc-section">
+        <div class="mission-num">STEP 08 • GPU PIPELINE INTERNALS</div>
+        <h2>Under the Hood: From Logo Line to GPU Pixel</h2>
+        <p>
+          Standard OpenGL 3.3 uniform arrays have strict size caps. Instead,
+          <a href="https://github.com/xyzzyapps/turtlefx/blob/main/src/renderer.c" target="_blank" rel="noopener"><code>src/renderer.c</code></a>
+          packs every emitted primitive into floating-point <code>RGBA32F</code> data textures (<code>TEXTURE_FILTER_POINT</code>)
+          and uploads them once per frame via <code>UpdateTexture()</code>. The fragment shaders read primitive <code>i</code> with
+          <code>texelFetch(uPrims, ivec2(i, row), 0)</code>.
+        </p>
+
+        <div class="two-col">
+          <div class="callout">
+            <h3><code>prim2d_tex</code> Layout (1024 × 4 RGBA32F)</h3>
+            <ul>
+              <li><strong>Row 0:</strong> <code>(type, x0, y0, x1)</code></li>
+              <li><strong>Row 1:</strong> <code>(y1, x2/halfW, y2/halfH, radius/angle)</code></li>
+              <li><strong>Row 2:</strong> <code>(r, g, b, a)</code></li>
+              <li><strong>Row 3:</strong> <code>(glow, blendMode, 0, 0)</code></li>
+            </ul>
+          </div>
+          <div class="callout">
+            <h3><code>prim3d_tex</code> Layout (256 × 5 RGBA32F)</h3>
+            <ul>
+              <li><strong>Row 0:</strong> <code>(type, px, py, pz)</code></li>
+              <li><strong>Row 1:</strong> <code>(fx, fy, fz, param0)</code></li>
+              <li><strong>Row 2:</strong> <code>(ux, uy, uz, param1)</code></li>
+              <li><strong>Row 3:</strong> <code>(r, g, b, param2)</code></li>
+              <li><strong>Row 4:</strong> <code>(matType, matParam, smoothK, opType)</code></li>
+            </ul>
+          </div>
+        </div>
+
+        <h3>The 5 Hidden GLSL 330 Shaders (<code>src/shaders.h</code>)</h3>
+        <ol class="step-list">
+          <li><strong><code>FRAG_SCENE_2D</code></strong> — Loops <code>0..uPrimCount</code>, evaluates exact 2D SDFs (<code>sdSegment</code>, <code>sdBox</code>, <code>sdTriangle</code>, circle), computes either smooth anti-aliased coverage + exponential halo (2D mode) or integer-snapped <code>step(d, 0.0)</code> (Retro mode).</li>
+          <li><strong><code>FRAG_SCENE_3D</code></strong> — Sphere-traces up to 84 steps per pixel against <code>mapScene(p)</code>. Transforms <code>p</code> into each primitive's local <code>(right, up, fwd)</code> coordinates, combines with hard <code>min</code>, polynomial <code>smin</code> (<code>smooth</code>), or <code>max(res.d, -d)</code> (<code>carve</code>), then shades hits with 4-tap tetrahedron normals, 28-step soft shadows, 4-tap AO, rim light, specular, and fog.</li>
+          <li><strong><code>FRAG_BLOOM_EXTRACT</code></strong> — Extracts pixels above luminance threshold <code>0.55</code> into a 1/3-resolution FBO.</li>
+          <li><strong><code>FRAG_BLUR</code></strong> — Runs horizontal then vertical 9-tap separable Gaussian blur across ping-pong FBOs <code>bloom_a</code> / <code>bloom_b</code>.</li>
+          <li><strong><code>FRAG_POST</code></strong> — Shared across <em>all</em> modes: applies CRT barrel warp, adds bloom, soft ACES-like tone-mapping (<code>c / (1 + 0.25*c)</code>), optional 4×4 Bayer dithering, palette quantization, scanlines, and vignette.</li>
+        </ol>
+      </section>
+
+      <!-- STEP 9 -->
+      <section id="step-9" class="doc-section">
+        <div class="mission-num">STEP 09 • LIMITS &amp; SOURCE MAP</div>
+        <h2>Engine Limits &amp; Codebase Map</h2>
+
+        <div class="two-col">
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr><th>Engine Constant</th><th>Limit</th></tr>
+              </thead>
+              <tbody>
+                <tr><td><code>SCENE_MAX_2D_PRIMS</code></td><td>1,024 primitives / frame</td></tr>
+                <tr><td><code>SCENE_MAX_3D_PRIMS</code></td><td>256 SDF primitives / frame</td></tr>
+                <tr><td><code>LOGO_MAX_LIST</code></td><td>64 numbers / list</td></tr>
+                <tr><td><code>LOGO_MAX_VARS</code></td><td>256 globals, 256 locals</td></tr>
+                <tr><td><code>LOGO_MAX_PROCS</code></td><td>64 user procedures</td></tr>
+                <tr><td><code>LOGO_MAX_STACK</code></td><td>64 recursion frames</td></tr>
+                <tr><td><code>LOGO_MAX_TURTLE_STK</code></td><td>64 nested <code>branch</code>/<code>at</code> blocks</td></tr>
+                <tr><td><code>LOGO_MAX_FILL_PTS</code></td><td>128 polygon vertices / <code>fill</code></td></tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="callout">
+            <h3>Source File Map</h3>
+            <ul>
+              <li><a href="https://github.com/xyzzyapps/turtlefx/blob/main/src/logo_lang.h" target="_blank" rel="noopener"><code>src/logo_lang.h</code></a> — AST, <code>LogoVM</code>, <code>TurtleState</code>, and <code>SceneIR</code> structs.</li>
+              <li><a href="https://github.com/xyzzyapps/turtlefx/blob/main/src/logo_parser.c" target="_blank" rel="noopener"><code>src/logo_parser.c</code></a> — Lexer &amp; recursive-descent parser.</li>
+              <li><a href="https://github.com/xyzzyapps/turtlefx/blob/main/src/logo_vm.c" target="_blank" rel="noopener"><code>src/logo_vm.c</code></a> — Interpreter, 2D/3D turtle, ear-clipping triangulator, and built-ins.</li>
+              <li><a href="https://github.com/xyzzyapps/turtlefx/blob/main/src/renderer.c" target="_blank" rel="noopener"><code>src/renderer.c</code></a> — <code>RGBA32F</code> texture packer &amp; multi-pass FBO orchestrator.</li>
+              <li><a href="https://github.com/xyzzyapps/turtlefx/blob/main/src/shaders.h" target="_blank" rel="noopener"><code>src/shaders.h</code></a> — All 5 embedded GLSL 330 shaders.</li>
+              <li><a href="https://github.com/xyzzyapps/turtlefx/blob/main/src/main.c" target="_blank" rel="noopener"><code>src/main.c</code></a> — raylib window loop, hot-reload watcher, CLI <code>--verify</code> / <code>--render-test</code>, and <code>F12</code> screenshots.</li>
+            </ul>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <footer class="footer">
+    <div class="container footer-inner">
+      <span><strong>TurtleFX</strong> — Made with Gemini Neon • Copyright © 2026 Xyzzy Apps</span>
+      <span><a href="index.html">← Back to Interactive Tutorial</a> • <a href="https://github.com/xyzzyapps/turtlefx/blob/main/LICENSE" target="_blank" rel="noopener">PolyForm Noncommercial 1.0.0</a></span>
+    </div>
+  </footer>
+
+  <script>
+    document.querySelectorAll(".copy-btn").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const code = btn.closest(".code-box").querySelector("pre code").textContent;
+        navigator.clipboard.writeText(code).then(() => {
+          const prev = btn.textContent;
+          btn.textContent = "Copied!";
+          setTimeout(() => (btn.textContent = prev), 1200);
+        });
+      });
+    });
+  </script>
+</body>
+</html>
