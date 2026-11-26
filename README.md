@@ -1,6 +1,7 @@
 # TurtleFX — Modern Logo Shader Engine
 
-> **Made with Gemini Neon** ✨
+> **Made with Gemini Neon** ✨  
+> 📖 **[Interactive Tutorial & Browser Playground (GitHub Pages)](https://xyzzyapps.github.io/turtlefx/)**
 
 A lightweight **C11 + raylib 5.5** game renderer scripted in a **modern Logo dialect** whose entire OpenGL 3.3 GPU shader pipeline — **Retro Pixel**, **2D Vector SDF**, **3D SDF Raymarching**, and **Cross-Mode Post-FX** — is completely abstracted away from the user.
 
