@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>TurtleFX Language Specification — Complete Reference &amp; Shader Internals</title>
+  <title>TurtleFX Language Guide — Everything Explained Step by Step</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Space+Grotesk:wght@600;700&display=swap" rel="stylesheet" />
@@ -16,7 +16,7 @@
       <div class="nav-links">
         <a href="index.html#playground">Playground</a>
         <a href="index.html#mission-1">Tutorial</a>
-        <a href="language.html" class="active-link">Language Docs</a>
+        <a href="language.html" class="active-link">Language Guide</a>
         <a href="index.html#install">Install</a>
         <a class="gh-pill" href="https://github.com/xyzzyapps/turtlefx" target="_blank" rel="noopener">GitHub ↗</a>
       </div>
@@ -25,380 +25,420 @@
 
   <header class="doc-hero">
     <div class="container">
-      <div class="kicker">Language Specification &amp; Internals • C11 + raylib 5.5 + GLSL 330</div>
-      <h1>The <em>TurtleFX Modern Logo</em> Reference</h1>
+      <div class="kicker">Complete Language Guide • Every Command, Rule &amp; Shader Explained Simply</div>
+      <h1>Everything in <em>TurtleFX Logo</em>, Step by Step</h1>
       <p class="lead">
-        A single-page, step-by-step specification with runnable examples for every construct — covering how to steer the 2D &amp; 3D turtle,
-        how fragment shaders work under the hood, and how <strong>Retro Pixel</strong>, <strong>Modern 2D</strong>, and <strong>3D Raymarching</strong> share one hidden pipeline.
+        No heavy textbook jargon. This page covers <strong>100% of the TurtleFX language</strong> with copy-paste examples:
+        variables, lists, math, controls, steering the 2D &amp; 3D turtle, glowing shaders, and how Retro, 2D, and 3D actually work behind the scenes.
       </p>
-
-      <div class="pipeline-bar" aria-label="Compilation and rendering pipeline">
-        <div class="pipe-node"><strong>01. .logo Source</strong><span>UTF-8 text</span></div>
-        <div class="pipe-node"><strong>02. Lexer &amp; Parser</strong><span><code>logo_parser.c</code></span></div>
-        <div class="pipe-node"><strong>03. AST &amp; VM</strong><span><code>logo_vm.c</code></span></div>
-        <div class="pipe-node"><strong>04. SceneIR</strong><span>Flat 2D/3D prims</span></div>
-        <div class="pipe-node"><strong>05. RGBA32F Upload</strong><span><code>renderer.c</code></span></div>
-        <div class="pipe-node"><strong>06. 5 GLSL Shaders</strong><span><code>shaders.h</code></span></div>
+      <div class="hero-actions">
+        <a class="btn primary" href="#ch-1">Start Reading ↓</a>
+        <a class="btn secondary" href="index.html#playground">Try in Live Sandbox</a>
       </div>
     </div>
   </header>
 
   <div class="container doc-layout">
-    <!-- STICKY TABLE OF CONTENTS (WITH SCROLL-SPY) -->
-    <aside class="doc-toc" aria-label="Table of contents">
-      <div class="toc-title">CONTENTS</div>
-      <a href="#step-1">01. Lexical Rules &amp; Tokens</a>
-      <a href="#step-2">02. Types, Variables &amp; Lists</a>
-      <a href="#step-3">03. Expressions &amp; Built-ins</a>
-      <a href="#step-4">04. Statements &amp; Control Flow</a>
-      <a href="#step-5">05. Init vs. Frame Lifecycle</a>
-      <a href="#step-6">06. Controlling the Turtle</a>
-      <a href="#step-7">07. Declarative Shaders &amp; FX</a>
-      <a href="#step-8">08. How Shaders Work</a>
-      <a href="#step-9">09. GPU Texture Internals</a>
-      <a href="#step-10">10. Limits &amp; Source Map</a>
+    <!-- STICKY SIDEBAR TOC -->
+    <aside class="doc-toc" aria-label="Guide chapters">
+      <div class="toc-title">CHAPTERS</div>
+      <a href="#ch-1">01. The Basics &amp; Writing Code</a>
+      <a href="#ch-2">02. Variables &amp; Lists</a>
+      <a href="#ch-3">03. Math, Colors &amp; Controls</a>
+      <a href="#ch-4">04. Decisions, Loops &amp; Custom Commands</a>
+      <a href="#ch-5">05. Setup vs. 60 FPS Game Loop</a>
+      <a href="#ch-6">06. Steering the 2D &amp; Retro Turtle</a>
+      <a href="#ch-7">07. Flying the 3D Turtle</a>
+      <a href="#ch-8">08. Modes, Palettes &amp; Special FX</a>
+      <a href="#ch-9">09. How Shaders Work (Retro / 2D / 3D)</a>
+      <a href="#ch-10">10. Limits &amp; Peek Inside the C Code</a>
     </aside>
 
-    <!-- MAIN DOCUMENTATION CONTENT -->
+    <!-- SINGLE-COLUMN SPACIOUS READING STAGE -->
     <main class="doc-content">
 
-      <!-- STEP 1 -->
-      <section id="step-1" class="doc-section">
-        <div class="section-index">01 / LEXER</div>
-        <h2>Lexical Structure &amp; Tokens</h2>
+      <!-- CHAPTER 1 -->
+      <section id="ch-1" class="doc-section">
+        <div class="section-index">01 / THE BASICS</div>
+        <h2>How TurtleFX Code Looks</h2>
         <p>
-          Every script begins in <code>lex_next()</code> inside
-          <a href="https://github.com/xyzzyapps/turtlefx/blob/main/src/logo_parser.c" target="_blank" rel="noopener"><code>src/logo_parser.c</code></a>.
-          The dialect keeps classic Logo's clean, semicolon-free look while supporting modern literals.
+          TurtleFX Logo is built to be fast to type. There are <strong>no semicolons</strong> at the end of lines,
+          and capitalization does not matter — <code>FD 50</code> and <code>fd 50</code> mean the exact same thing.
         </p>
 
+        <h3>Comments (Notes for Humans)</h3>
+        <p>Anything after <code>;</code> or <code>//</code> on a line is ignored by the computer. Use them to leave yourself reminders:</p>
+        <div class="code-box">
+          <div class="code-title">Comments &amp; Chaining Commands <button class="copy-btn">Copy</button></div>
+<pre><code>; Classic Logo comment style
+// Modern comment style (works too!)
+
+; You can write one command per line:
+fd 50
+rt 90
+
+; OR chain multiple turtle commands on one line!
+pu  fd 20  rt 90  pd  fd 50</code></pre>
+        </div>
+
+        <h3>The 5 Kinds of Values You Can Write</h3>
         <div class="table-wrap">
           <table>
             <thead>
-              <tr><th>Construct</th><th>Examples</th><th>Lexer Behavior</th></tr>
+              <tr><th>Kind</th><th>Examples</th><th>Where You Use It</th></tr>
             </thead>
             <tbody>
-              <tr>
-                <td><strong>Comments</strong></td>
-                <td><code>; classic logo</code><br><code>// modern style</code></td>
-                <td>Ignored through the end of the line.</td>
-              </tr>
-              <tr>
-                <td><strong>Numbers</strong></td>
-                <td><code>42</code>, <code>3.14</code>, <code>100%</code></td>
-                <td>Parsed as IEEE-754 <code>double</code>. Trailing <code>%</code> is accepted inside argument lists like <code>hsl(h, 100%, 60%)</code> when not followed by an operand.</td>
-              </tr>
-              <tr>
-                <td><strong>Hex Colors</strong></td>
-                <td><code>#f0a</code>, <code>#38bdf8</code>, <code>#ff004dcc</code></td>
-                <td>Supports 3, 6, or 8 hex digits; converted immediately to normalized RGBA floats <code>[0..1]</code>.</td>
-              </tr>
-              <tr>
-                <td><strong>Strings</strong></td>
-                <td><code>"left"</code>, <code>"space"</code></td>
-                <td>Double-quoted single-line strings (max 63 chars), primarily used by <code>key(...)</code>.</td>
-              </tr>
-              <tr>
-                <td><strong>Identifiers</strong></td>
-                <td><code>fd</code>, <code>FD</code>, <code>ship_x</code>, <code>2d</code>, <code>3d</code></td>
-                <td>Case-insensitive (lowercased by lexer). Special tokens <code>2d</code> and <code>3d</code> lex as identifiers so <code>mode 3d</code> parses cleanly.</td>
-              </tr>
+              <tr><td><strong>Numbers</strong></td><td><code>10</code>, <code>3.14</code>, <code>-5</code>, <code>100%</code></td><td>Distances, angles, speeds, timers. (<code>0</code> counts as false; any other number counts as true.)</td></tr>
+              <tr><td><strong>Colors</strong></td><td><code>#f0a</code>, <code>#38bdf8</code>, <code>#ff004d88</code></td><td>3-digit (<code>#RGB</code>), 6-digit (<code>#RRGGBB</code>), or 8-digit with transparency (<code>#RRGGBBAA</code>).</td></tr>
+              <tr><td><strong>Text Strings</strong></td><td><code>"left"</code>, <code>"space"</code></td><td>Inside quotes, used to ask which key the player is pressing.</td></tr>
+              <tr><td><strong>Lists &amp; 3D Points</strong></td><td><code>[1, 1, 1, 1]</code>, <code>[0, 5, 10]</code></td><td>Hold up to <strong>64 numbers</strong> in one variable, or 3D positions <code>[x, y, z]</code>.</td></tr>
+              <tr><td><strong>Option Words</strong></td><td><code>pico8</code>, <code>gameboy</code>, <code>add</code>, <code>2d</code>, <code>3d</code></td><td>Plain words without quotes for modes, palettes, and effects (e.g. <code>palette pico8</code>).</td></tr>
             </tbody>
           </table>
         </div>
 
-        <div class="two-col">
-          <div class="code-box">
-            <div class="code-title">Example: Literals &amp; Whitespace Rules <button class="copy-btn">Copy</button></div>
-<pre><code>; Comments can start with ; or //
-// Hex colors support #RGB, #RRGGBB, and #RRGGBBAA
-color #38bdf8
-color #ff004dcc          ; semi-transparent red
-color hsl(200, 100%, 60%)
+        <div class="note-block">
+          <h3>3 Tiny Spacing Rules to Remember</h3>
+          <p>Because TurtleFX uses <code>[ ]</code> for both lists and code blocks, spacing makes your intent crystal clear:</p>
+          <ul>
+            <li><strong>List item vs. Code block:</strong> Glue <code>[</code> right onto a list name (<code>hp[0]</code>). Put a space before <code>[</code> for code blocks (<code>if alive [ fd 10 ]</code>).</li>
+            <li><strong>Negative coordinates:</strong> Glue <code>-</code> to a negative number when listing coordinates: <code>at 0 -4 [ dot 2 ]</code> means <code>x = 0, y = -4</code>. Put spaces around <code>-</code> when subtracting: <code>x - 4</code>.</li>
+            <li><strong>Parentheses:</strong> Glue <code>(</code> to a command name for function-style calls: <code>box(2, 3, 1)</code>. Put a space before <code>(</code> to group math: <code>at (10 + k * 5) 172 [ dot 2 ]</code>.</li>
+          </ul>
+        </div>
+      </section>
 
-; Whitespace distinguishes indexing vs. blocks:
-if alive[i] == 1 [       ; no space in alive[i] = index
-  at 0 -4 [ dot 2 ]      ; space before -4 = two args (0, -4)
-  at (10 + i * 5) 20 [   ; space before ( = grouped 1st arg
-    dot 1.5
+      <!-- CHAPTER 2 -->
+      <section id="ch-2" class="doc-section">
+        <div class="section-index">02 / MEMORY</div>
+        <h2>Variables &amp; Lists</h2>
+        <p>
+          A <strong>variable</strong> is a labeled box that remembers a value — like your ship's position, score, or speed.
+          Create one with <code>let</code>, and change it with <code>=</code>, <code>+=</code>, <code>-=</code>, <code>*=</code>, or <code>/=</code>.
+        </p>
+
+        <div class="code-box">
+          <div class="code-title">Creating &amp; Updating Variables <button class="copy-btn">Copy</button></div>
+<pre><code>let ship_x = 160
+let score = 0
+let speed = 120
+
+; Shortcuts to update variables:
+ship_x += speed * dt    ; add to ship_x
+ship_x -= 10            ; subtract 10
+speed  *= 1.5           ; multiply by 1.5
+speed  /= 2             ; divide by 2
+score   = 100           ; replace completely</code></pre>
+        </div>
+
+        <h3>Lists (Remembering Lots of Things at Once)</h3>
+        <p>
+          Need 6 enemies or 3 lasers on screen at the same time? Store them in a <strong>list</strong>!
+          List positions always start counting at <code>0</code> (so the first item is <code>[0]</code>, the second is <code>[1]</code>, etc.).
+        </p>
+
+        <div class="code-box">
+          <div class="code-title">Reading &amp; Changing List Items <button class="copy-btn">Copy</button></div>
+<pre><code>; 1 = enemy is alive, 0 = enemy is destroyed
+let enemy_alive = [1, 1, 1, 1, 1, 1]
+let enemy_hp    = [3, 3, 3, 3, 3, 3]
+
+; Read an item:
+if enemy_alive[0] == 1 [
+  ; Damage enemy #0 by 1
+  enemy_hp[0] -= 1
+  if enemy_hp[0] &lt;= 0 [
+    enemy_alive[0] = 0
   ]
 ]</code></pre>
+        </div>
+
+        <h3>Global vs. Local Variables + Built-In Variables</h3>
+        <div class="mini-grid">
+          <div class="mini-box">
+            <h4>Global (Top of File)</h4>
+            <p>A <code>let</code> written outside <code>on frame</code> or <code>to ... end</code> is remembered <strong>forever</strong> across frames — perfect for player position, score, and enemy lists.</p>
           </div>
-          <div class="note-block">
-            <h3>Whitespace-Aware Disambiguation</h3>
-            <p>Every token records <code>space_before</code> and <code>attached_right</code> so TurtleFX needs zero semicolons:</p>
-            <ul>
-              <li><strong>List index vs. block:</strong> <code>alive[i]</code> (attached <code>[</code>) indexes a list; <code>if alive [ ... ]</code> (spaced <code>[</code>) starts a block.</li>
-              <li><strong>Call vs. grouped arg:</strong> <code>at(10, 20) [...]</code> parses parenthesized args; <code>at (10 + k) 20 [...]</code> groups the first bare arg.</li>
-              <li><strong>Negative arg vs. minus:</strong> <code>at 0 -4</code> splits into <code>0</code> and <code>-4</code>, while <code>0 - 4</code> subtracts.</li>
-            </ul>
+          <div class="mini-box">
+            <h4>Local (Temporary)</h4>
+            <p>A <code>let</code> inside a <code>to</code> command or loop counter (<code>repeat 6 with i</code>) only exists inside that block and disappears when it ends.</p>
           </div>
         </div>
-      </section>
-
-      <!-- STEP 2 -->
-      <section id="step-2" class="doc-section">
-        <div class="section-index">02 / VALUES &amp; MEMORY</div>
-        <h2>Runtime Types, Variables &amp; Lists</h2>
-        <p>
-          Defined in <a href="https://github.com/xyzzyapps/turtlefx/blob/main/src/logo_lang.h" target="_blank" rel="noopener"><code>src/logo_lang.h</code></a>
-          (<code>LogoVal</code>) and managed in <a href="https://github.com/xyzzyapps/turtlefx/blob/main/src/logo_vm.c" target="_blank" rel="noopener"><code>src/logo_vm.c</code></a>.
-          The VM is dynamically typed around 5 value kinds:
-        </p>
 
         <div class="table-wrap">
           <table>
             <thead>
-              <tr><th>Type</th><th>Representation</th><th>Notes</th></tr>
+              <tr><th>Built-in Variable</th><th>What It Gives You Automatically</th></tr>
             </thead>
             <tbody>
-              <tr><td><code>VAL_NUM</code></td><td><code>double num</code></td><td>All numbers &amp; booleans (<code>0</code> is falsy, non-zero is truthy).</td></tr>
-              <tr><td><code>VAL_COLOR</code></td><td><code>float vec[4]</code></td><td>RGBA color produced by <code>#hex</code>, <code>hsl()</code>, or <code>rgb()</code>.</td></tr>
-              <tr><td><code>VAL_VEC3</code> / List</td><td><code>float vec[64]</code> + <code>list_len</code></td><td>Used for 3D vectors (<code>[-1, -2, -1]</code>) and 1D mutable numeric lists (up to 64 elements).</td></tr>
-              <tr><td><code>VAL_STR</code></td><td><code>char str[64]</code></td><td>Quoted string literals such as <code>"space"</code>.</td></tr>
-              <tr><td><code>VAL_SYM</code></td><td><code>char str[64]</code></td><td>Any unknown bare identifier evaluates to a symbolic atom (e.g. <code>pico8</code>, <code>gameboy</code>, <code>bayer</code>, <code>add</code>, <code>soft</code>), keeping shader options quote-free.</td></tr>
+              <tr><td><code>time</code></td><td>Seconds since the script started (great for smooth motion like <code>sin(time)</code>).</td></tr>
+              <tr><td><code>dt</code></td><td>Time since the last frame (~<code>0.016</code> at 60 FPS). Multiply speeds by <code>dt</code> so movement stays smooth on every PC!</td></tr>
+              <tr><td><code>width</code> / <code>height</code></td><td>Canvas width and height (e.g. <code>320</code> and <code>180</code> in Retro mode).</td></tr>
+              <tr><td><code>pi</code></td><td><code>3.14159...</code> (handy for circle and polygon math).</td></tr>
+              <tr><td><code>true</code> / <code>on</code> &amp; <code>false</code> / <code>off</code></td><td>Shortcuts for <code>1</code> and <code>0</code>.</td></tr>
             </tbody>
           </table>
-        </div>
-
-        <div class="two-col">
-          <div class="code-box">
-            <div class="code-title">Example: Global State &amp; Mutable Lists <button class="copy-btn">Copy</button></div>
-<pre><code>; Global state persists across every frame
-let ship_x = 160
-let enemy_alive = [1, 1, 1, 1, 1, 1]
-let boom_t = [0, 0, 0, 0, 0, 0]
-
-on frame(dt)
-  ; Scalar compound assignments (=, +=, -=, *=, /=)
-  ship_x += 125 * dt
-
-  ; Indexed list reads &amp; writes
-  repeat 6 with i [
-    if enemy_alive[i] == 1 [
-      let ex = 48 + i * 44
-      if abs(ship_x - ex) &lt; 8 [
-        enemy_alive[i] = 0
-        boom_t[i] = 0.35
-      ]
-    ]
-    if boom_t[i] &gt; 0 [ boom_t[i] -= dt ]
-  ]
-end</code></pre>
-          </div>
-          <div class="note-block">
-            <h3>Scoping &amp; Built-in Read-Only Vars</h3>
-            <ul>
-              <li><strong>Globals:</strong> <code>let</code> at top-level lives in <code>vm-&gt;globals</code> and persists across frames.</li>
-              <li><strong>Locals:</strong> Procedure parameters, <code>let</code> inside <code>to ... end</code>, and <code>repeat ... with i</code> iterators live on the stack <code>vm-&gt;locals</code> and are popped on exit.</li>
-              <li><strong>Built-ins:</strong> <code>time</code> (seconds), <code>dt</code> (delta time), <code>pi</code>, <code>width</code>, <code>height</code>, <code>true</code>/<code>on</code> (<code>1</code>), <code>false</code>/<code>off</code> (<code>0</code>).</li>
-            </ul>
-          </div>
         </div>
       </section>
 
-      <!-- STEP 3 -->
-      <section id="step-3" class="doc-section">
-        <div class="section-index">03 / EXPRESSIONS</div>
-        <h2>Operators, Named Arguments &amp; Built-in Functions</h2>
-        <p>Expressions use standard recursive-descent precedence (lowest to highest):</p>
+      <!-- CHAPTER 3 -->
+      <section id="ch-3" class="doc-section">
+        <div class="section-index">03 / MATH, COLORS &amp; CONTROLS</div>
+        <h2>Operators, Built-In Functions &amp; Keyboard/Mouse</h2>
 
+        <h3>Math &amp; Logic Operators</h3>
+        <p>Order of operations works just like math class (parentheses first, then multiply/divide, then add/subtract, then comparisons, then <code>and</code> / <code>or</code>):</p>
         <div class="table-wrap">
           <table>
             <thead>
-              <tr><th>Precedence</th><th>Operators</th><th>Behavior</th></tr>
+              <tr><th>Operators</th><th>Meaning</th><th>Example</th></tr>
             </thead>
             <tbody>
-              <tr><td>1 (lowest)</td><td><code>or</code></td><td>Short-circuit logical OR (returns <code>1</code> or <code>0</code>).</td></tr>
-              <tr><td>2</td><td><code>and</code></td><td>Short-circuit logical AND (returns <code>1</code> or <code>0</code>).</td></tr>
-              <tr><td>3</td><td><code>==</code>, <code>!=</code>, <code>&lt;</code>, <code>&lt;=</code>, <code>&gt;</code>, <code>&gt;=</code></td><td>Numeric comparison (<code>==</code> uses <code>1e-6</code> float epsilon).</td></tr>
-              <tr><td>4</td><td><code>+</code>, <code>-</code></td><td>Addition and subtraction.</td></tr>
-              <tr><td>5</td><td><code>*</code>, <code>/</code>, <code>%</code></td><td>Multiply, safe divide (<code>0</code> on divide-by-zero), and <strong>positive-wrapping modulo</strong> (negative inputs wrap cleanly into <code>[0, r)</code>).</td></tr>
-              <tr><td>6 (highest)</td><td><code>-x</code>, <code>!x</code>, <code>not x</code></td><td>Unary negation and logical NOT.</td></tr>
+              <tr><td><code>+</code> <code>-</code> <code>*</code> <code>/</code></td><td>Add, subtract, multiply, divide (dividing by 0 safely returns <code>0</code>)</td><td><code>ship_x + 120 * dt</code></td></tr>
+              <tr><td><code>%</code></td><td>Remainder / wrap-around (even negative numbers wrap cleanly!)</td><td><code>(time * 40) % 180</code></td></tr>
+              <tr><td><code>==</code> <code>!=</code> <code>&lt;</code> <code>&lt;=</code> <code>&gt;</code> <code>&gt;=</code></td><td>Equal, not equal, less/greater than</td><td><code>if kills &gt;= 6 [ ... ]</code></td></tr>
+              <tr><td><code>and</code> <code>or</code> <code>not</code> / <code>!</code></td><td>Combine or flip true/false checks</td><td><code>if key("space") and cd &lt;= 0 [ ... ]</code></td></tr>
             </tbody>
           </table>
         </div>
 
-        <div class="two-col">
-          <div class="code-box">
-            <div class="code-title">Example: Math, Named Args &amp; Input <button class="copy-btn">Copy</button></div>
-<pre><code>; Positional and named arguments work interchangeably:
+        <div class="code-box">
+          <div class="code-title">Named Arguments: Both Styles Work! <button class="copy-btn">Copy</button></div>
+<pre><code>; You can pass arguments by position OR label them by name so code is super readable:
 cylinder(4.2, 0.9)
 cylinder(radius: 4.2, height: 0.9)
 
-; Wrapping modulo keeps scrolling stars on screen
-let sy = (i * 41 + time * 35) % 180
+; Same for effects and camera:
+fx crt(scanlines: 0.35, curve: 0.10)
+camera(pos: [0, 4, 12], look: [0, 1.5, 0], fov: 48)</code></pre>
+        </div>
 
-; Smooth pulsing color &amp; clamped player input
-let hue = (time * 60) % 360
-color hsl(hue, 100%, 60%)
-let speed = lerp(60, 180, key("shift"))
-if key("right") [ ship_x = clamp(ship_x + speed * dt, 16, 304) ]</code></pre>
-          </div>
-          <div class="cheat-grid doc-fn-grid">
-            <div>
-              <h4>Trigonometry</h4>
-              <ul>
-                <li><code>sin(rad)</code>, <code>cos(rad)</code>, <code>tan(rad)</code></li>
-                <li><code>dsin(deg)</code>, <code>dcos(deg)</code></li>
-                <li><code>rad(deg)</code>, <code>deg(rad)</code></li>
-              </ul>
-            </div>
-            <div>
-              <h4>Math &amp; Shaping</h4>
-              <ul>
-                <li><code>abs(x)</code>, <code>sqrt(x)</code>, <code>pow(a, b)</code></li>
-                <li><code>floor(x)</code>, <code>ceil(x)</code>, <code>fract(x)</code></li>
-                <li><code>min(a, b)</code>, <code>max(a, b)</code></li>
-                <li><code>clamp(x, lo, hi)</code>, <code>lerp(a, b, t)</code></li>
-                <li><code>rand()</code> (deterministic LCG)</li>
-              </ul>
-            </div>
-            <div>
-              <h4>Colors</h4>
-              <ul>
-                <li><code>hsl(h, s, l)</code> (<code>h</code>: 0–360)</li>
-                <li><code>rgb(r, g, b)</code> (0–1 or 0–255)</li>
-              </ul>
-            </div>
-            <div>
-              <h4>Host Input</h4>
-              <ul>
-                <li><code>key("left")</code> (held)</li>
-                <li><code>key_pressed("space")</code></li>
-                <li><code>mouse_x()</code>, <code>mouse_y()</code></li>
-              </ul>
-            </div>
-          </div>
+        <h3>Every Built-In Function</h3>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th>Category</th><th>Functions</th><th>What They Do</th></tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><strong>Waves &amp; Angles</strong></td>
+                <td><code>sin(x)</code> <code>cos(x)</code> <code>tan(x)</code><br><code>dsin(deg)</code> <code>dcos(deg)</code><br><code>rad(deg)</code> <code>deg(rad)</code></td>
+                <td><code>sin</code>/<code>cos</code> take radians (awesome for <code>sin(time * 3)</code> wobbles). <code>dsin</code>/<code>dcos</code> take degrees (awesome for steering at <code>angle</code> degrees!). <code>rad</code>/<code>deg</code> convert between them.</td>
+              </tr>
+              <tr>
+                <td><strong>Numbers</strong></td>
+                <td><code>abs(x)</code> <code>sqrt(x)</code> <code>pow(a, b)</code><br><code>floor(x)</code> <code>ceil(x)</code> <code>fract(x)</code></td>
+                <td><code>abs</code> = distance without minus sign; <code>sqrt</code> = square root; <code>pow</code> = exponent; <code>floor</code>/<code>ceil</code> = round down/up; <code>fract</code> = decimal part only.</td>
+              </tr>
+              <tr>
+                <td><strong>Game Helpers</strong></td>
+                <td><code>min(a, b)</code> <code>max(a, b)</code><br><code>clamp(x, lo, hi)</code><br><code>lerp(a, b, t)</code> / <code>mix(a, b, t)</code><br><code>rand()</code></td>
+                <td><code>clamp</code> keeps a ship inside screen walls; <code>lerp</code>/<code>mix</code> blends smoothly from <code>a</code> to <code>b</code>; <code>rand()</code> returns a random decimal from <code>0.0</code> to <code>1.0</code>.</td>
+              </tr>
+              <tr>
+                <td><strong>Colors</strong></td>
+                <td><code>hsl(hue, sat, light)</code><br><code>rgb(r, g, b)</code></td>
+                <td><code>hsl</code> picks rainbow colors using a 0–360° color wheel (<code>sat</code> &amp; <code>light</code> work as <code>0..1</code> or <code>0..100%</code>). <code>rgb</code> takes <code>0..1</code> or <code>0..255</code>.</td>
+              </tr>
+              <tr>
+                <td><strong>Controls</strong></td>
+                <td><code>key("name")</code><br><code>key_pressed("name")</code><br><code>mouse_x()</code> <code>mouse_y()</code></td>
+                <td><code>key</code> is true while held down; <code>key_pressed</code> fires once on tap. Supported names: <code>"left"</code>/<code>"a"</code>, <code>"right"</code>/<code>"d"</code>, <code>"up"</code>/<code>"w"</code>, <code>"down"</code>/<code>"s"</code>, <code>"space"</code>, <code>"enter"</code>, <code>"shift"</code>, <code>"a"</code>–<code>"z"</code>, <code>"0"</code>–<code>"9"</code>.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="code-box">
+          <div class="code-title">Example: Keeping a Ship On-Screen + Rainbow Pulse + Mouse Aim <button class="copy-btn">Copy</button></div>
+<pre><code>; Keep ship_x safely between 16 and 304
+if key("left")  [ ship_x -= 120 * dt ]
+if key("right") [ ship_x += 120 * dt ]
+ship_x = clamp(ship_x, 16, 304)
+
+; Smoothly cycle rainbow color over time
+color hsl((time * 80) % 360, 100%, 60%)
+
+; Draw a glowing dot wherever the mouse is (in 2D centered coords)
+let mx = mouse_x() - width * 0.5
+let my = height * 0.5 - mouse_y()
+at mx my [ dot 8 + sin(time * 6) * 3 ]</code></pre>
         </div>
       </section>
 
-      <!-- STEP 4 -->
-      <section id="step-4" class="doc-section">
-        <div class="section-index">04 / GRAMMAR &amp; FLOW</div>
-        <h2>Statements, Blocks &amp; Chained Bare Commands</h2>
-        <p>
-          TurtleFX mixes two familiar block styles: square brackets <code>[ ... ]</code> for inline control flow and scoped
-          turtle modifiers, and <code>... end</code> for top-level procedure and frame declarations.
-        </p>
+      <!-- CHAPTER 4 -->
+      <section id="ch-4" class="doc-section">
+        <div class="section-index">04 / LOGIC &amp; CUSTOM COMMANDS</div>
+        <h2>Decisions, Loops &amp; Teaching the Turtle New Tricks</h2>
 
+        <h3>Making Decisions: <code>if</code> and <code>else</code></h3>
         <div class="code-box">
-          <div class="code-title">Example: Recursion, Loops &amp; Conditionals <button class="copy-btn">Copy</button></div>
-<pre><code>; Recursive procedure with early exit via stop
-to tree(len, radius, depth)
-  if depth == 0 [
-    material emissive(#38bdf8, strength: 2.2)
-    sphere(radius * 2.4)
-    stop
-  ]
-  material matte(#6b4423)
-  capsule(len, radius)
+          <div class="code-title">Example: if / else <button class="copy-btn">Copy</button></div>
+<pre><code>if hp &lt;= 0 [
+  color #ff004d          ; red when knocked out
+] else [
+  color #2ee68a          ; green when healthy
+]</code></pre>
+        </div>
+
+        <h3>Repeating Things: <code>repeat</code>, <code>repeat ... with i</code>, and <code>while</code></h3>
+        <div class="code-box">
+          <div class="code-title">Example: All 3 Loop Styles <button class="copy-btn">Copy</button></div>
+<pre><code>; 1. Simple repeat: draw a square
+repeat 4 [
+  fd 50
+  rt 90
+]
+
+; 2. Repeat with a counter (i goes 0, 1, 2, 3, 4, 5):
+repeat 6 with i [
+  at (48 + i * 44) 40 [ dot 6 ]
+]
+
+; 3. While loop: keep going as long as a rule is true
+let r = 10
+while r &lt; 80 [
+  dot r
+  r += 20
+]</code></pre>
+        </div>
+
+        <h3>Teaching New Commands: <code>to ... end</code> &amp; <code>stop</code></h3>
+        <p>
+          Wrap any pattern inside <code>to name(inputs) ... end</code> to invent your own Logo command!
+          A command can even <strong>call itself</strong> (recursion) to grow fractals and trees — just add an <code>if ... [ stop ]</code> (or <code>return</code>) so it knows when to stop!
+        </p>
+        <div class="code-box">
+          <div class="code-title">Example: Custom Command + Fractal Tree Recursion <button class="copy-btn">Copy</button></div>
+<pre><code>to fern(len, depth)
+  if depth == 0 [ stop ]         ; base case: stop recursing!
+
+  color hsl(120 + depth * 15, 90%, 55%)
   fd len
-  branch [ roll 15   pitch 28  tree(len * 0.72, radius * 0.72, depth - 1) ]
-  branch [ roll 135  pitch 30  tree(len * 0.70, radius * 0.72, depth - 1) ]
-  branch [ roll 255  pitch 26  tree(len * 0.68, radius * 0.72, depth - 1) ]
+  branch [ lt 28  fern(len * 0.72, depth - 1) ]
+  branch [ rt 28  fern(len * 0.72, depth - 1) ]
 end
 
-; Conditionals and loops
-if alive_count == 0 [ respawn_t += dt ] else [ active = 1 ]
-repeat 8 with i [ rt i * 45  fd 20 ]
-while step &lt; 10 [ step += 1 ]</code></pre>
-        </div>
-
-        <h3>How Chained Multi-Command Lines Work</h3>
-        <p>
-          Classic Logo lets you chain statements on a single line: <code>pu  fd radius  rt 90 + (180 / sides)  pd</code>.
-          When a command is written <em>without</em> attached parentheses, <code>bare_command_arity()</code> tells the parser exactly how many expressions to consume before the next command starts:
-        </p>
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr><th>Arity</th><th>Bare Commands</th></tr>
-            </thead>
-            <tbody>
-              <tr><td><strong>0 args</strong></td><td><code>pu</code>, <code>penup</code>, <code>pd</code>, <code>pendown</code>, <code>home</code>, <code>stop</code>, <code>return</code></td></tr>
-              <tr><td><strong>1 arg</strong></td><td><code>fd</code>/<code>forward</code>, <code>bk</code>/<code>back</code>, <code>rt</code>/<code>right</code>, <code>lt</code>/<code>left</code>, <code>pitch</code>/<code>up</code>, <code>down</code>, <code>yaw</code>, <code>roll</code>, <code>color</code>, <code>pen_width</code>/<code>pw</code>, <code>glow</code>, <code>blend</code>, <code>clear</code>, <code>palette</code>, <code>dot</code>, <code>circle</code>, <code>sphere</code>, <code>mode</code>, <code>sky</code>, <code>material</code>, <code>light</code>, <code>fx</code></td></tr>
-              <tr><td><strong>2 args</strong></td><td><code>rect</code>, <code>capsule</code>, <code>cylinder</code>, <code>cone</code>, <code>torus</code></td></tr>
-              <tr><td><strong>3 args</strong></td><td><code>box</code></td></tr>
-              <tr><td><strong>Block cmds</strong></td><td><code>branch [...]</code>, <code>save [...]</code>, <code>fill [...]</code>, <code>carve [...]</code>, <code>smooth k [...]</code>, <code>at x y (z) [...]</code>, <code>offset x y (z) [...]</code></td></tr>
-            </tbody>
-          </table>
+; Call your new command:
+at 0 -140 [ fern(70, 6) ]</code></pre>
         </div>
       </section>
 
-      <!-- STEP 5 -->
-      <section id="step-5" class="doc-section">
-        <div class="section-index">05 / RUNTIME LIFECYCLE</div>
-        <h2>Two-Phase Execution: Init vs. Per-Frame</h2>
-        <div class="two-col">
-          <div>
-            <p>A TurtleFX script separates one-time setup from 60 FPS animation automatically:</p>
-            <ol class="step-list">
-              <li>
-                <strong><code>logo_vm_init</code></strong> — Registers all <code>to ... end</code> procedures and locates <code>on frame(dt)</code>.
-              </li>
-              <li>
-                <strong><code>logo_vm_run_init</code></strong> — Runs top-level statements <strong>once</strong> on load or hot-reload. Top-level <code>let</code> variables become persistent game state; <code>mode</code>, <code>palette</code>, <code>fx</code>, <code>sky</code>, and <code>light</code> are snapshotted into <code>vm-&gt;base_scene</code>.
-              </li>
-              <li>
-                <strong><code>logo_vm_run_frame</code></strong> — Runs 60 times/second: resets <code>vm-&gt;scene</code> from <code>base_scene</code>, clears primitives to <code>0</code>, resets the turtle to the origin, binds <code>dt</code>, and runs <code>on frame(dt)</code> while keeping globals alive.
-              </li>
-            </ol>
-          </div>
-          <div class="code-box">
-            <div class="code-title">Example: Init Once vs. Animate Every Frame <button class="copy-btn">Copy</button></div>
-<pre><code>; --- INIT PHASE (runs ONCE on load/save) ---
+      <!-- CHAPTER 5 -->
+      <section id="ch-5" class="doc-section">
+        <div class="section-index">05 / HOW A GAME RUNS</div>
+        <h2>Setup (Runs Once) vs. <code>on frame(dt)</code> (60 FPS)</h2>
+        <p>
+          Every TurtleFX game has two parts:
+        </p>
+        <ol class="step-list">
+          <li><strong>Top of your file (Setup):</strong> Runs <strong>once</strong> when you launch or save the file. Put your <code>mode</code>, <code>fx</code>, starting <code>let</code> variables, and <code>to ... end</code> commands here.</li>
+          <li><strong><code>on frame(dt) ... end</code> (The Game Loop):</strong> Runs <strong>60 times every second</strong>! Each frame starts with a fresh turtle at the center, while all your top-level <code>let</code> variables keep their updated values.</li>
+        </ol>
+
+        <div class="code-box">
+          <div class="code-title">Complete Mini-Game: Bouncing Neon Ball <button class="copy-btn">Copy</button></div>
+<pre><code>; === 1. SETUP (runs once) ===
 mode 2d
 fx bloom(strength: 0.6)
-let x = 0                ; persists across frames!
-let vx = 180
 
-; --- FRAME PHASE (runs 60x per second) ---
+let bx = 0
+let by = 0
+let vx = 210
+let vy = 150
+
+; === 2. GAME LOOP (runs 60x per second) ===
 on frame(dt)
-  clear #06070d
-  x += vx * dt
-  if abs(x) &gt; 300 [ vx = -vx ]   ; bounce!
+  clear #0e0e11
 
-  color #38bdf8
+  ; Move ball and bounce off invisible walls
+  bx += vx * dt
+  by += vy * dt
+  if abs(bx) &gt; 280 [ vx = -vx ]
+  if abs(by) &gt; 160 [ vy = -vy ]
+
+  ; Draw glowing ball
+  color #2ee68a
   glow 0.8
-  at x 0 [ dot 16 ]
+  at bx by [ dot 14 ]
 end</code></pre>
-          </div>
         </div>
       </section>
 
-      <!-- STEP 6: TURTLE CONTROL COOKBOOK -->
-      <section id="step-6" class="doc-section">
-        <div class="section-index">06 / TURTLE CONTROL COOKBOOK</div>
-        <h2>Controlling the Turtle (2D, Retro &amp; 3D)</h2>
+      <!-- CHAPTER 6: FULL 2D & RETRO TURTLE CONTROL GUIDE -->
+      <section id="ch-6" class="doc-section">
+        <div class="section-index">06 / STEERING THE 2D &amp; RETRO TURTLE</div>
+        <h2>How to Control the Turtle in 2D &amp; Retro</h2>
         <p>
-          Think of the turtle as a tiny robot carrying a pen (in 2D/Retro) or a 3D sculpting nozzle (in 3D).
-          Every movement happens <strong>relative to where the turtle is currently facing</strong>, unless you use <code>at</code> to teleport to world coordinates.
+          Imagine a tiny robot holding a glowing marker. You tell it how far to walk and which way to turn — and every turn happens
+          <strong>from the turtle's own point of view</strong>.
         </p>
 
-        <h3>Coordinate Systems by Mode</h3>
+        <!-- INLINE SVG DIAGRAM: 2D vs RETRO COORDS -->
+        <div class="diagram-box" aria-label="2D and Retro coordinate systems diagram">
+          <svg viewBox="0 0 720 210" width="100%" role="img">
+            <!-- Left panel: mode 2d -->
+            <rect x="8" y="8" width="338" height="194" rx="4" fill="#141418" stroke="#27272f"/>
+            <text x="24" y="32" fill="#2ee68a" font-family="JetBrains Mono, monospace" font-size="12" font-weight="600">mode 2d (CENTERED)</text>
+            <!-- Axes -->
+            <line x1="48" y1="115" x2="310" y2="115" stroke="#2e2e38" stroke-dasharray="4 4"/>
+            <line x1="178" y1="45" x2="178" y2="188" stroke="#2e2e38" stroke-dasharray="4 4"/>
+            <!-- Heading arrow (0 deg = UP) -->
+            <line x1="178" y1="115" x2="178" y2="62" stroke="#2ee68a" stroke-width="2.5"/>
+            <polygon points="178,52 172,66 184,66" fill="#2ee68a"/>
+            <!-- Turn arcs -->
+            <path d="M 192 84 A 28 28 0 0 1 206 110" fill="none" stroke="#f2b84b" stroke-width="1.8"/>
+            <polygon points="207,114 201,104 210,103" fill="#f2b84b"/>
+            <text x="214" y="96" fill="#f2b84b" font-family="JetBrains Mono, monospace" font-size="11">rt 90</text>
+            <path d="M 164 84 A 28 28 0 0 0 150 110" fill="none" stroke="#8ab4f8" stroke-width="1.8"/>
+            <polygon points="149,114 146,103 155,104" fill="#8ab4f8"/>
+            <text x="108" y="96" fill="#8ab4f8" font-family="JetBrains Mono, monospace" font-size="11">lt 90</text>
+            <circle cx="178" cy="115" r="4" fill="#ecece7"/>
+            <text x="186" y="132" fill="#ecece7" font-family="JetBrains Mono, monospace" font-size="11">(0, 0)</text>
+            <text x="190" y="64" fill="#2ee68a" font-family="JetBrains Mono, monospace" font-size="11">0° (+Y up)</text>
+            <text x="285" y="132" fill="#9a9aa6" font-family="JetBrains Mono, monospace" font-size="11">+X</text>
+
+            <!-- Right panel: mode retro -->
+            <rect x="374" y="8" width="338" height="194" rx="4" fill="#141418" stroke="#27272f"/>
+            <text x="390" y="32" fill="#f2b84b" font-family="JetBrains Mono, monospace" font-size="12" font-weight="600">mode retro(320, 180) (PIXEL GRID)</text>
+            <rect x="406" y="48" width="276" height="134" fill="#0e0e11" stroke="#3a3a46"/>
+            <circle cx="406" cy="48" r="4" fill="#f2b84b"/>
+            <text x="414" y="62" fill="#f2b84b" font-family="JetBrains Mono, monospace" font-size="11">(0, 0) top-left</text>
+            <text x="580" y="175" fill="#9a9aa6" font-family="JetBrains Mono, monospace" font-size="11">(320, 180)</text>
+            <!-- Turtle inside retro screen -->
+            <line x1="544" y1="145" x2="544" y2="98" stroke="#2ee68a" stroke-width="2.5"/>
+            <polygon points="544,88 538,102 550,102" fill="#2ee68a"/>
+            <circle cx="544" cy="145" r="4" fill="#ecece7"/>
+            <text x="554" y="106" fill="#2ee68a" font-family="JetBrains Mono, monospace" font-size="11">0° still points UP!</text>
+            <text x="554" y="149" fill="#9a9aa6" font-family="JetBrains Mono, monospace" font-size="11">(160, 140)</text>
+          </svg>
+        </div>
+
+        <h3>Every 2D / Retro Turtle Command</h3>
         <div class="table-wrap">
           <table>
             <thead>
-              <tr><th>Mode</th><th>Origin <code>(0, 0)</code></th><th>Default Heading (<code>0°</code>)</th><th>Notes</th></tr>
+              <tr><th>Command (Alias)</th><th>What It Does</th></tr>
             </thead>
             <tbody>
-              <tr><td><code>mode 2d</code></td><td>Screen center</td><td>Up (<code>+Y</code>), <code>rt</code> turns clockwise</td><td>Resolution-independent anti-aliased SDFs.</td></tr>
-              <tr><td><code>mode retro(w, h)</code></td><td>Top-left pixel</td><td>Up (<code>-Y</code>), <code>rt</code> turns clockwise</td><td>Snapped to an integer <code>w × h</code> virtual framebuffer.</td></tr>
-              <tr><td><code>mode 3d</code></td><td>World origin <code>(0, 0, 0)</code></td><td><code>fwd = +Z</code>, <code>up = +Y</code>, <code>right = +X</code></td><td>Right-handed orthonormal basis; <code>pitch 90</code> points straight up (<code>+Y</code>).</td></tr>
+              <tr><td><code>fd 50</code> (<code>forward</code>) / <code>bk 50</code> (<code>back</code>)</td><td>Walk forward or backward. Draws a glowing line when the pen is down.</td></tr>
+              <tr><td><code>rt 90</code> (<code>right</code>) / <code>lt 90</code> (<code>left</code>)</td><td>Turn clockwise or counter-clockwise by degrees.</td></tr>
+              <tr><td><code>pu</code> (<code>penup</code>) / <code>pd</code> (<code>pendown</code>)</td><td>Lift the pen to move silently, or put it back down to draw.</td></tr>
+              <tr><td><code>home</code></td><td>Snap the turtle back to <code>(0, 0)</code> facing straight up (<code>0°</code>).</td></tr>
+              <tr><td><code>dot 8</code> / <code>circle 8</code></td><td>Stamp a filled circle of radius 8 right under the turtle.</td></tr>
+              <tr><td><code>rect 20 10</code></td><td>Stamp a 20×10 rectangle rotated to match the turtle's angle.</td></tr>
+              <tr><td><code>fill [ ... ]</code></td><td>Trace any outline with <code>fd</code>/<code>bk</code> — TurtleFX fills it solid (even stars &amp; notched spaceships!).</td></tr>
+              <tr><td><code>color #hex</code> / <code>pen_width 3</code> (<code>pw</code>)</td><td>Change ink color and stroke thickness.</td></tr>
+              <tr><td><code>glow 0.7</code> / <code>blend add</code> (or <code>alpha</code>)</td><td>Add neon aura; <code>blend add</code> makes overlapping strokes glow brighter like lasers.</td></tr>
             </tbody>
           </table>
         </div>
 
-        <h3>6.1 Basic Movement &amp; Pen Lifting (<code>fd</code>, <code>bk</code>, <code>rt</code>, <code>lt</code>, <code>pu</code>, <code>pd</code>)</h3>
-        <p>
-          Use <code>pu</code> (pen up) to reposition the turtle without leaving a trail, and <code>pd</code> (pen down) to draw again.
-          Here is how you center any regular polygon around the turtle's starting spot:
-        </p>
+        <h3>Example A: Lifting the Pen (<code>pu</code> / <code>pd</code>) to Center a Shape</h3>
         <div class="code-box">
-          <div class="code-title">Example: Centered Polygon &amp; Dashed Trail <button class="copy-btn">Copy</button></div>
+          <div class="code-title">Draw Any Centered Regular Polygon + Dashed Line <button class="copy-btn">Copy</button></div>
 <pre><code>to polygon(sides, radius)
-  ; Step to the top edge with pen UP, then align along the first side
+  ; Walk out to the edge with pen UP, then align along the first side
   pu  fd radius  rt 90 + (180 / sides)  pd
   let edge = 2 * radius * sin(pi / sides)
   repeat sides [
@@ -407,20 +447,53 @@ end</code></pre>
   ]
 end
 
-; Dashed line using pu / pd
-repeat 8 [
+; Dashed line: alternate pen down and pen up
+repeat 6 [
   pd  fd 12
   pu  fd 8
 ]
 pd</code></pre>
         </div>
 
-        <h3>6.2 Player-Controlled Turtle (Keyboard Steering)</h3>
+        <h3>Example B: Never Lose Your Place with <code>branch</code>, <code>at</code>, and <code>offset</code></h3>
         <p>
-          Turn the turtle into a playable ship by storing <code>px</code>, <code>py</code>, and <code>angle</code> in globals, then positioning the turtle each frame with <code>at</code> and <code>rt</code>:
+          These three scoped blocks save the turtle's position, angle, and color on entry — and snap everything back when the <code>]</code> closes:
         </p>
+        <ul>
+          <li><strong><code>branch [ ... ]</code></strong> (or <code>save [ ... ]</code>): Stay right where you are, draw a side-detail, then snap back automatically.</li>
+          <li><strong><code>at x y [ ... ]</code></strong>: Teleport to exact world coordinates <code>(x, y)</code> facing <code>0°</code>, draw, then return.</li>
+          <li><strong><code>offset dx dy [ ... ]</code></strong>: Shift slightly relative to where the turtle is right now (awesome for ship cockpits and thrusters!).</li>
+        </ul>
         <div class="code-box">
-          <div class="code-title">Example: Asteroids-Style Steering Turtle <button class="copy-btn">Copy</button></div>
+          <div class="code-title">Example: branch, at, offset, and Concave fill [ ... ] <button class="copy-btn">Copy</button></div>
+<pre><code>to draw_ship()
+  ; Concave fighter hull filled automatically!
+  color #fff1e8
+  branch [
+    pu  fd 10  pd
+    fill [
+      rt 150  fd 18
+      rt 110  fd 6
+      lt 50   fd 4       ; rear engine notch
+      rt 100  fd 4
+      lt 50   fd 6
+      rt 110  fd 18
+    ]
+  ]
+  ; Because branch restored us, we are STILL at the ship's center!
+  color #29adff
+  offset 0 1 [ dot 2.0 ]         ; cockpit
+  color #ffa300
+  offset 0 -7 [ rt 180  fd 6 ]   ; thruster flame
+end
+
+; Place the ship anywhere on screen:
+at ship_x ship_y [ draw_ship() ]</code></pre>
+        </div>
+
+        <h3>Example C: Drive the Turtle Like an Asteroids Ship!</h3>
+        <div class="code-box">
+          <div class="code-title">Keyboard-Controlled Turtle (Arrows to Turn &amp; Thrust) <button class="copy-btn">Copy</button></div>
 <pre><code>mode 2d
 fx bloom(strength: 0.5)
 
@@ -429,9 +502,9 @@ let py = 0
 let angle = 0
 
 on frame(dt)
-  clear #06070d
+  clear #0e0e11
 
-  ; Rotate with Left/Right, thrust forward with Up
+  ; Turn with Left/Right, thrust forward with Up
   if key("left")  [ angle -= 200 * dt ]
   if key("right") [ angle += 200 * dt ]
   if key("up") [
@@ -439,12 +512,10 @@ on frame(dt)
     py += dcos(angle) * 180 * dt
   ]
 
-  ; Place turtle at player position, aim by angle, and draw ship
   at px py [
     rt angle
-    color #38bdf8
+    color #2ee68a
     glow 0.7
-    pen_width 2.5
     fill [
       pu fd 16 pd
       rt 150  fd 28
@@ -454,292 +525,292 @@ on frame(dt)
   ]
 end</code></pre>
         </div>
-
-        <h3>6.3 Scoped Transforms: <code>branch</code>, <code>at</code>, <code>offset</code> &amp; Concave <code>fill</code></h3>
-        <p>
-          In classic 1967 Logo, forgetting to undo a turn breaks everything drawn afterward. TurtleFX solves this with a 64-deep state stack:
-        </p>
-        <div class="two-col">
-          <div class="code-box">
-            <div class="code-title">Example: branch vs. at vs. offset <button class="copy-btn">Copy</button></div>
-<pre><code>; at x y [ ... ] jumps to absolute world coords
-at 0 0 [
-  color #fff1e8
-  ; branch [ ... ] saves &amp; restores pos, angle, color, glow!
-  repeat 8 with i [
-    branch [
-      rt i * 45
-      pu  fd 60  pd
-      color hsl(i * 45, 100%, 60%)
-      fd 35
-      dot 5
-    ]
-  ]
-  ; Turtle is STILL at (0,0) facing 0° with #fff1e8!
-  ; offset dx dy [ ... ] shifts relative to current frame
-  offset 0 -15 [ color #ffa300  dot 4 ]
-]</code></pre>
-          </div>
-          <div class="code-box">
-            <div class="code-title">Example: Concave Fighter Hull with fill [ ... ] <button class="copy-btn">Copy</button></div>
-<pre><code>; fill [ ... ] records every vertex visited by fd/bk
-; and runs ear-clipping triangulation automatically!
-color #fff1e8
-branch [
-  pu  fd 10  pd        ; start at ship nose
-  fill [
-    rt 150  fd 18      ; right wing edge
-    rt 110  fd 6       ; right wing back
-    lt 50   fd 4       ; concave rear notch!
-    rt 100  fd 4
-    lt 50   fd 6       ; left wing back
-    rt 110  fd 18      ; back to nose
-  ]
-]</code></pre>
-          </div>
-        </div>
-
-        <h3>6.4 Steering the 3D Turtle (Airplane Analogy: <code>pitch</code>, <code>yaw</code>, <code>roll</code>)</h3>
-        <p>
-          In <code>mode 3d</code>, imagine sitting inside an airplane cockpit looking along the turtle's <strong>forward</strong> vector:
-        </p>
-        <ul class="step-list">
-          <li><strong><code>pitch 30</code></strong> (or <code>up 30</code> / <code>down 30</code>) — pulls the nose <strong>up</strong> toward the sky (rotates around the wings/<code>right</code> axis). <code>pitch 90</code> points straight up (<code>+Y</code>).</li>
-          <li><strong><code>yaw 45</code></strong> (or <code>rt 45</code> / <code>lt 45</code>) — steers left/right like a car (rotates around the <code>up</code> axis).</li>
-          <li><strong><code>roll 120</code></strong> — performs a barrel roll around the nose/<code>forward</code> axis without changing which way the nose points.</li>
-        </ul>
-
-        <div class="two-col">
-          <div class="code-box">
-            <div class="code-title">Example: 3D Branching with roll + pitch <button class="copy-btn">Copy</button></div>
-<pre><code>; Start at ground, point straight UP (+Y)
-at 0 0 0 [
-  pitch 90
-  material matte(#6b4423)
-  capsule(2.0, 0.25)   ; extrudes along forward (+Y)
-  fd 2.0               ; fly to top of trunk
-
-  ; Roll around trunk axis, then pitch outward 30 deg
-  branch [ roll 0    pitch 30  capsule(1.4, 0.18) ]
-  branch [ roll 120  pitch 30  capsule(1.4, 0.18) ]
-  branch [ roll 240  pitch 30  capsule(1.4, 0.18) ]
-]</code></pre>
-          </div>
-          <div class="code-box">
-            <div class="code-title">Example: Sculpting with smooth &amp; carve <button class="copy-btn">Copy</button></div>
-<pre><code>; smooth k [ ... ] melts shapes together like clay
-smooth 0.55 [
-  material matte(#4d7c0f)
-  at 0 0 0 [ cylinder(radius: 4.2, height: 0.9) ]
-  material matte(#645e59)
-  at 0 -1.9 0 [ roll 180  cone(radius: 3.9, height: 3.6) ]
-]
-
-; carve [ ... ] punches clean boolean holes!
-at -2 1.4 0 [
-  material matte(#94a3b8)
-  box(2.1, 2.5, 0.85)
-  carve [
-    at -2 0.45 0 [ pitch 90  capsule(1.3, 0.62) ]
-  ]
-]</code></pre>
-          </div>
-        </div>
       </section>
 
-      <!-- STEP 7 -->
-      <section id="step-7" class="doc-section">
-        <div class="section-index">07 / DECLARATIVE SHADER CONTROLS</div>
-        <h2>Modes, Materials &amp; Post-FX Reference</h2>
+      <!-- CHAPTER 7: FLYING THE 3D TURTLE -->
+      <section id="ch-7" class="doc-section">
+        <div class="section-index">07 / FLYING THE 3D TURTLE</div>
+        <h2>How to Control the Turtle in 3D</h2>
         <p>
-          None of these commands expose GLSL — they configure fields on <code>SceneIR</code> consumed by the hidden shader pipeline:
+          In <code>mode 3d</code>, imagine sitting inside a jet plane. You move forward with <code>fd</code> and steer with three airplane turns:
+          <strong><code>pitch</code></strong> (nose up/down), <strong><code>yaw</code></strong> (steer left/right), and <strong><code>roll</code></strong> (barrel roll).
         </p>
+
+        <!-- INLINE SVG DIAGRAM: 3D AIRPLANE TURTLE AXES -->
+        <div class="diagram-box" aria-label="3D turtle pitch yaw roll diagram">
+          <svg viewBox="0 0 720 190" width="100%" role="img">
+            <rect x="8" y="8" width="704" height="174" rx="4" fill="#141418" stroke="#27272f"/>
+            <!-- 3 columns: pitch, yaw, roll -->
+            <line x1="244" y1="24" x2="244" y2="166" stroke="#27272f"/>
+            <line x1="478" y1="24" x2="478" y2="166" stroke="#27272f"/>
+
+            <!-- PITCH -->
+            <text x="32" y="36" fill="#2ee68a" font-family="JetBrains Mono, monospace" font-size="12" font-weight="600">pitch 30 (or up / down)</text>
+            <line x1="56" y1="112" x2="178" y2="112" stroke="#3a3a46" stroke-dasharray="4 4"/>
+            <line x1="76" y1="112" x2="166" y2="68" stroke="#2ee68a" stroke-width="2.5"/>
+            <polygon points="175,63 160,64 166,75" fill="#2ee68a"/>
+            <path d="M 142 112 A 54 54 0 0 0 132 85" fill="none" stroke="#f2b84b" stroke-width="1.8"/>
+            <text x="32" y="150" fill="#9a9aa6" font-family="IBM Plex Sans, sans-serif" font-size="12">Tilts the nose UP or DOWN.</text>
+            <text x="32" y="168" fill="#ecece7" font-family="JetBrains Mono, monospace" font-size="11">pitch 90 = straight up!</text>
+
+            <!-- YAW -->
+            <text x="268" y="36" fill="#8ab4f8" font-family="JetBrains Mono, monospace" font-size="12" font-weight="600">yaw 45 (or rt / lt)</text>
+            <line x1="360" y1="54" x2="360" y2="132" stroke="#3a3a46" stroke-dasharray="4 4"/>
+            <ellipse cx="360" cy="96" rx="52" ry="18" fill="none" stroke="#8ab4f8" stroke-width="2"/>
+            <polygon points="412,96 402,89 404,102" fill="#8ab4f8"/>
+            <text x="268" y="150" fill="#9a9aa6" font-family="IBM Plex Sans, sans-serif" font-size="12">Steers LEFT or RIGHT flat,</text>
+            <text x="268" y="168" fill="#ecece7" font-family="JetBrains Mono, monospace" font-size="11">just like turning a car.</text>
+
+            <!-- ROLL -->
+            <text x="502" y="36" fill="#f2b84b" font-family="JetBrains Mono, monospace" font-size="12" font-weight="600">roll 120</text>
+            <line x1="534" y1="96" x2="656" y2="96" stroke="#2ee68a" stroke-width="2.2"/>
+            <polygon points="666,96 652,90 652,102" fill="#2ee68a"/>
+            <ellipse cx="592" cy="96" rx="16" ry="34" fill="none" stroke="#f2b84b" stroke-width="2"/>
+            <polygon points="592,62 584,70 598,70" fill="#f2b84b"/>
+            <text x="502" y="150" fill="#9a9aa6" font-family="IBM Plex Sans, sans-serif" font-size="12">Spins like a barrel roll</text>
+            <text x="502" y="168" fill="#ecece7" font-family="JetBrains Mono, monospace" font-size="11">around your forward nose!</text>
+          </svg>
+        </div>
+
+        <h3>All 6 3D Shapes, Materials &amp; Sculpting Tools</h3>
         <div class="table-wrap">
           <table>
             <thead>
-              <tr><th>Command</th><th>Parameters / Options</th><th>GPU Shader Effect</th></tr>
+              <tr><th>Command</th><th>What It Builds</th></tr>
             </thead>
             <tbody>
-              <tr><td><code>mode</code></td><td><code>2d</code> · <code>3d</code> · <code>retro(w, h)</code></td><td>Selects 2D SDF, 3D raymarcher, or low-res pixel target.</td></tr>
-              <tr><td><code>palette</code></td><td><code>pico8</code> · <code>gameboy</code> · <code>cga</code> · <code>sunset</code> · <code>none</code></td><td>Nearest-color RGB/luma quantization in <code>FRAG_POST</code>.</td></tr>
-              <tr><td><code>clear</code></td><td><code>#hex</code> or color expr</td><td>2D / Retro background clear color.</td></tr>
-              <tr><td><code>sky</code></td><td><code>#hex</code> or <code>gradient(#top, #bottom)</code></td><td>3D background sky gradient.</td></tr>
-              <tr><td><code>light</code></td><td><code>sun(dir: [x,y,z], color: #hex, shadows: soft|off)</code></td><td>Directional sun + 28-step raymarched soft shadows.</td></tr>
-              <tr><td><code>camera</code></td><td><code>camera(pos: [x,y,z], look: [x,y,z], fov: 48)</code></td><td>Builds the 3D pinhole camera ray basis.</td></tr>
-              <tr><td><code>material</code></td><td><code>matte(#c)</code> · <code>glossy(#c, rough: 0.25)</code> · <code>emissive(#c, strength: 2.0)</code></td><td>Controls Blinn-Phong specular or HDR bloom-triggering glow.</td></tr>
-              <tr><td><code>glow</code> / <code>blend</code></td><td><code>glow 0.5</code> · <code>blend alpha | add</code></td><td>2D exponential SDF halo &amp; additive color accumulation.</td></tr>
-              <tr><td><code>fx crt</code></td><td><code>crt(scanlines: 0.35, curve: 0.10)</code></td><td>Barrel distortion bezel + sine-wave scanlines.</td></tr>
-              <tr><td><code>fx bloom</code></td><td><code>bloom(strength: 0.55, radius: 10)</code></td><td>1/3-res bright-pass + 2-pass 9-tap separable Gaussian blur.</td></tr>
-              <tr><td><code>fx retro</code></td><td><code>retro(w, h, dither: bayer|off, palette: ...)</code></td><td>Downsamples any 2D/3D scene with 4×4 Bayer ordered dithering.</td></tr>
-              <tr><td><code>fx fog</code></td><td><code>fog(color: #hex, near: 8, far: 22)</code></td><td>Linear distance fog in the 3D raymarcher.</td></tr>
-              <tr><td><code>fx vignette</code></td><td><code>vignette(0.35)</code></td><td>Radial edge darkening.</td></tr>
+              <tr><td><code>sphere(radius)</code></td><td>A ball centered at the turtle.</td></tr>
+              <tr><td><code>box(w, h, d)</code></td><td>A 3D box (width, height, depth) rotated with the turtle.</td></tr>
+              <tr><td><code>capsule(length, radius)</code></td><td>A rounded cylinder shooting forward along the turtle's nose (perfect for tree trunks &amp; limbs!).</td></tr>
+              <tr><td><code>cylinder(radius, height)</code></td><td>A flat-topped cylinder standing along the turtle's up axis.</td></tr>
+              <tr><td><code>cone(radius, height)</code></td><td>A pointed cone (use <code>roll 180</code> to flip it upside down for a floating island!).</td></tr>
+              <tr><td><code>torus(major, minor)</code></td><td>A 3D donut / halo ring.</td></tr>
+              <tr><td><code>material matte(#col)</code></td><td>Soft clay / stone look with no shiny highlight.</td></tr>
+              <tr><td><code>material glossy(#col, rough: 0.25)</code></td><td>Shiny plastic / metal highlight (lower <code>rough</code> = shinier).</td></tr>
+              <tr><td><code>material emissive(#col, strength: 2.0)</code></td><td>Self-lit glowing crystal or neon tube (triggers <code>fx bloom</code>!).</td></tr>
+              <tr><td><code>smooth k [ ... ]</code></td><td>Melts every shape inside together smoothly like soft clay (bigger <code>k</code> = meltier).</td></tr>
+              <tr><td><code>carve [ ... ]</code></td><td>Punches a clean hole out of earlier shapes — great for doorways, windows, and tunnels!</td></tr>
+              <tr><td><code>camera(pos: [...], look: [...], fov: 48)</code></td><td>Places your eye in 3D space and aims it at <code>look</code>.</td></tr>
+              <tr><td><code>light sun(dir: [...], color: #hex, shadows: soft)</code></td><td>Sets sun direction, tint, and soft raymarched shadows (or <code>shadows: off</code>).</td></tr>
+              <tr><td><code>sky #hex</code> or <code>sky gradient(#top, #bot)</code></td><td>Sets the 3D background sky color or vertical gradient.</td></tr>
             </tbody>
           </table>
         </div>
 
         <div class="code-box">
-          <div class="code-title">Example: Mixing 3D Raymarching + Retro Handheld Shaders <button class="copy-btn">Copy</button></div>
+          <div class="code-title">Example: 3D Floating Island + Carved Doorway + Glowing Crystal Tree <button class="copy-btn">Copy</button></div>
 <pre><code>mode 3d
-sky gradient(#8bac0f, #306230)
-light sun(dir: [-1, -2, -1], color: #9bbc0f, shadows: soft)
-fx retro(320, 180, dither: bayer, palette: gameboy)
+sky gradient(#0b1120, #312e81)
+light sun(dir: [-1, -2, -1], color: #ffe8cc, shadows: soft)
+fx bloom(strength: 0.55)
+
+to tree(len, radius, depth)
+  if depth == 0 [
+    material emissive(#38bdf8, strength: 2.2)
+    sphere(radius * 2.4)               ; glowing crystal leaf!
+    stop
+  ]
+  material matte(#6b4423)
+  capsule(len, radius)                 ; draw branch forward
+  fd len                               ; fly to the tip
+
+  ; Roll 120 deg around the branch, then pitch out 28 deg
+  branch [ roll 15   pitch 28  tree(len * 0.72, radius * 0.72, depth - 1) ]
+  branch [ roll 135  pitch 30  tree(len * 0.70, radius * 0.72, depth - 1) ]
+  branch [ roll 255  pitch 26  tree(len * 0.68, radius * 0.72, depth - 1) ]
+end
+
+on frame(dt)
+  ; Orbit the camera slowly in a circle
+  camera(pos: [sin(time * 0.4) * 11, 3.3, cos(time * 0.4) * 11], look: [0, 1.5, 0])
+
+  ; Clay-blended floating island
+  smooth 0.55 [
+    material matte(#4d7c0f)
+    at 0 0 0 [ cylinder(radius: 4.2, height: 0.9) ]
+    material matte(#645e59)
+    at 0 -1.9 0 [ roll 180  cone(radius: 3.9, height: 3.6) ]
+  ]
+
+  ; Stone arch with a carved-out doorway
+  at -2.0 1.4 0.3 [
+    material matte(#94a3b8)
+    box(2.1, 2.5, 0.85)
+    carve [
+      at -2.0 0.45 0.3 [ pitch 90  capsule(1.3, 0.62) ]
+    ]
+  ]
+
+  ; Point turtle straight UP and grow the tree
+  at 1.1 0.35 -0.2 [ pitch 90  tree(2.0, 0.24, 3) ]
+end</code></pre>
+        </div>
+      </section>
+
+      <!-- CHAPTER 8: MODES, PALETTES & SPECIAL FX -->
+      <section id="ch-8" class="doc-section">
+        <div class="section-index">08 / LOOKS &amp; SPECIAL EFFECTS</div>
+        <h2>Modes, Palettes &amp; One-Line Shaders (<code>fx</code>)</h2>
+        <p>
+          You can completely transform the vibe of any game — from crisp neon vector to dusty 1990s GameBoy — by changing just 1 or 2 lines at the top of your script:
+        </p>
+
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th>Command</th><th>Options</th><th>Visual Style</th></tr>
+            </thead>
+            <tbody>
+              <tr><td><code>mode retro(320, 180)</code></td><td>Any pixel size <code>(w, h)</code></td><td>Chunky pixel-art screen scaled up with razor-sharp square pixels.</td></tr>
+              <tr><td><code>mode 2d</code></td><td>—</td><td>Smooth, high-resolution 2D shapes with neon glow halos.</td></tr>
+              <tr><td><code>mode 3d</code></td><td>—</td><td>Full 3D sculpted worlds with lighting and soft shadows.</td></tr>
+              <tr><td><code>clear #hex</code></td><td>Any color</td><td>Background fill color for 2D &amp; Retro modes.</td></tr>
+              <tr><td><code>palette ...</code></td><td><code>pico8</code> · <code>gameboy</code> · <code>cga</code> · <code>sunset</code> · <code>none</code></td><td>Snaps every pixel on screen to a classic retro color palette.</td></tr>
+              <tr><td><code>fx crt(...)</code></td><td><code>scanlines: 0.35, curve: 0.10</code></td><td>Curves the screen like an old arcade monitor with horizontal scanlines.</td></tr>
+              <tr><td><code>fx bloom(...)</code></td><td><code>strength: 0.55, radius: 10</code></td><td>Makes bright lasers, neon lines, and emissive crystals bleed soft light.</td></tr>
+              <tr><td><code>fx retro(...)</code></td><td><code>w, h, dither: bayer|off, palette: ...</code></td><td>Turns even a <strong>3D world</strong> into chunky Bayer-dithered retro pixel art!</td></tr>
+              <tr><td><code>fx fog(...)</code></td><td><code>color: #hex, near: 8, far: 22</code></td><td>Fades distant 3D shapes smoothly into atmospheric mist.</td></tr>
+              <tr><td><code>fx vignette(0.35)</code></td><td>Strength <code>0.0</code>–<code>1.0</code></td><td>Gently darkens the corners of the screen like a movie lens.</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="code-box">
+          <div class="code-title">Instant GameBoy 3D: Add Just These 3 Lines to Any 3D Scene! <button class="copy-btn">Copy</button></div>
+<pre><code>fx retro(320, 180, dither: bayer, palette: gameboy)
 fx fog(color: #0f380f, near: 8, far: 22)
 fx crt(scanlines: 0.22, curve: 0.06)</code></pre>
         </div>
       </section>
 
-      <!-- STEP 8: HOW SHADERS & RETRO/2D/3D WORK -->
-      <section id="step-8" class="doc-section">
-        <div class="section-index">08 / GRAPHICS ARCHITECTURE</div>
+      <!-- CHAPTER 9: HOW SHADERS WORK (PLAIN ENGLISH) -->
+      <section id="ch-9" class="doc-section">
+        <div class="section-index">09 / HOW THE GRAPHICS WORK</div>
         <h2>How Shaders Work — and How Retro, 2D &amp; 3D Work Here</h2>
 
         <div class="note-block">
-          <h3>What Is a Fragment Shader (and Why Does TurtleFX Hide It)?</h3>
+          <h3>Wait — What Even IS a Shader?</h3>
           <p>
-            A GPU renders a <code>1280 × 720</code> screen by running the same tiny program — a <strong>fragment shader</strong> — simultaneously across
-            all <strong>921,600 pixels in parallel</strong>. Each pixel only knows its own <code>(x, y)</code> screen coordinate and must return one final RGB color.
+            Your graphics card (GPU) is like a stadium with <strong>921,600 tiny painters</strong> — one painter for every single pixel on a <code>1280×720</code> screen.
+            A <strong>shader</strong> is the tiny instruction sheet you hand to all 921,600 painters at the exact same instant.
+            Every painter looks at their own pixel spot <code>(x, y)</code>, asks <em>"Am I inside a shape? How close am I to the edge?"</em>, and paints their pixel in under a millisecond!
           </p>
           <p>
-            Logo is <strong>push-based</strong> ("walk forward 50, turn right 90°"), while shaders are <strong>pull-based</strong>
-            ("for pixel <code>p</code>, compute the shortest mathematical distance to every shape"). TurtleFX bridges the two automatically every frame:
+            Writing shader math by hand is hard because you have to think backwards from pixels to shapes.
+            <strong>TurtleFX does the translation for you:</strong> you boss around one turtle in Logo, TurtleFX hands the GPU a list of shapes, and the hidden shaders paint the whole screen at 60 FPS!
           </p>
-          <ol class="step-list">
-            <li><strong>CPU (<code>logo_vm.c</code>)</strong> runs your Logo script and records flat primitives (lines, triangles, circles, spheres, boxes, capsules) into <code>SceneIR</code>.</li>
-            <li><strong>GPU Upload (<code>renderer.c</code>)</strong> packs that list into a floating-point texture and draws a fullscreen quad running one of the hidden GLSL 330 shaders.</li>
-            <li><strong>GPU Shaders (<code>shaders.h</code>)</strong> evaluate exact <strong>Signed Distance Fields (SDFs)</strong> per pixel in parallel, then run shared bloom, dithering, palette, and CRT post-processing.</li>
-          </ol>
         </div>
 
-        <div class="mode-grid">
-          <div class="mode-card">
+        <!-- INLINE SVG DIAGRAM: 3-PASS PIPELINE -->
+        <div class="diagram-box" aria-label="How TurtleFX turns Logo into GPU pixels">
+          <svg viewBox="0 0 720 130" width="100%" role="img">
+            <rect x="8" y="12" width="156" height="104" rx="4" fill="#141418" stroke="#27272f"/>
+            <text x="22" y="38" fill="#2ee68a" font-family="JetBrains Mono, monospace" font-size="11" font-weight="600">1. YOUR LOGO</text>
+            <text x="22" y="60" fill="#ecece7" font-family="IBM Plex Sans, sans-serif" font-size="12">Turtle walks &amp; drops</text>
+            <text x="22" y="78" fill="#ecece7" font-family="IBM Plex Sans, sans-serif" font-size="12">shapes into a list</text>
+            <text x="22" y="100" fill="#9a9aa6" font-family="JetBrains Mono, monospace" font-size="10">fd, fill, sphere, carve</text>
+
+            <path d="M 168 64 L 190 64" stroke="#2ee68a" stroke-width="2"/>
+            <polygon points="196,64 186,59 186,69" fill="#2ee68a"/>
+
+            <rect x="198" y="12" width="160" height="104" rx="4" fill="#141418" stroke="#27272f"/>
+            <text x="212" y="38" fill="#8ab4f8" font-family="JetBrains Mono, monospace" font-size="11" font-weight="600">2. SCENE SHADER</text>
+            <text x="212" y="60" fill="#ecece7" font-family="IBM Plex Sans, sans-serif" font-size="12">Paints all pixels at</text>
+            <text x="212" y="78" fill="#ecece7" font-family="IBM Plex Sans, sans-serif" font-size="12">once using SDF math</text>
+            <text x="212" y="100" fill="#9a9aa6" font-family="JetBrains Mono, monospace" font-size="10">Retro / 2D / 3D Raymarch</text>
+
+            <path d="M 362 64 L 384 64" stroke="#2ee68a" stroke-width="2"/>
+            <polygon points="390,64 380,59 380,69" fill="#2ee68a"/>
+
+            <rect x="392" y="12" width="144" height="104" rx="4" fill="#141418" stroke="#27272f"/>
+            <text x="406" y="38" fill="#f2b84b" font-family="JetBrains Mono, monospace" font-size="11" font-weight="600">3. BLOOM PASS</text>
+            <text x="406" y="60" fill="#ecece7" font-family="IBM Plex Sans, sans-serif" font-size="12">Grabs bright pixels</text>
+            <text x="406" y="78" fill="#ecece7" font-family="IBM Plex Sans, sans-serif" font-size="12">&amp; softly blurs them</text>
+            <text x="406" y="100" fill="#9a9aa6" font-family="JetBrains Mono, monospace" font-size="10">Optional (fx bloom)</text>
+
+            <path d="M 540 64 L 562 64" stroke="#2ee68a" stroke-width="2"/>
+            <polygon points="568,64 558,59 558,69" fill="#2ee68a"/>
+
+            <rect x="570" y="12" width="142" height="104" rx="4" fill="#141418" stroke="#2ee68a"/>
+            <text x="584" y="38" fill="#2ee68a" font-family="JetBrains Mono, monospace" font-size="11" font-weight="600">4. POST-FX</text>
+            <text x="584" y="60" fill="#ecece7" font-family="IBM Plex Sans, sans-serif" font-size="12">Dither, palettes,</text>
+            <text x="584" y="78" fill="#ecece7" font-family="IBM Plex Sans, sans-serif" font-size="12">CRT &amp; vignette</text>
+            <text x="584" y="100" fill="#9a9aa6" font-family="JetBrains Mono, monospace" font-size="10">Final screen image!</text>
+          </svg>
+        </div>
+
+        <div class="mode-stack">
+          <div class="mode-row">
             <div class="mode-label">MODE 1 • RETRO PIXEL</div>
-            <h3>How <code>mode retro(w, h)</code> Works</h3>
+            <h3>How <code>mode retro(320, 180)</code> Works</h3>
             <p>
-              Pass 1 renders into a low-res offscreen framebuffer (e.g. <code>320×180</code>) with <code>TEXTURE_FILTER_POINT</code>
-              so pixels stay razor-sharp blocks when scaled to fullscreen.
+              Instead of painting a huge HD canvas, TurtleFX paints onto a tiny <strong>320×180 pixel grid</strong> and stretches it up with crisp, blocky square pixels (no blurry smoothing!).
+              Every line, dot, and filled ship snaps cleanly to whole pixels. Then the Post-FX shader snaps every color to your retro palette (like 16-color PICO-8), bends the corners like a glass TV tube, and draws subtle scanlines.
             </p>
-            <ul>
-              <li><strong>Pixel Snapping:</strong> Inside <code>FRAG_SCENE_2D</code> (<code>uIsRetro == 1</code>), pixel coordinates snap to integer centers: <code>p = floor(uv * res) + 0.5</code>.</li>
-              <li><strong>Crisp 1-Bit Edges:</strong> Smooth anti-aliasing is replaced by a hard threshold <code>step(d, 0.0)</code>.</li>
-              <li><strong>Palette &amp; CRT:</strong> <code>FRAG_POST</code> quantizes colors to the nearest palette swatch (PICO-8, GameBoy, CGA, Sunset), curves edges, and overlays scanlines.</li>
-            </ul>
           </div>
 
-          <div class="mode-card">
-            <div class="mode-label">MODE 2 • MODERN 2D SDF</div>
+          <div class="mode-row">
+            <div class="mode-label">MODE 2 • MODERN 2D</div>
             <h3>How <code>mode 2d</code> Works</h3>
             <p>
-              Pass 1 renders at native window resolution using exact <strong>2D Signed Distance Functions</strong>
-              (<code>sdSegment</code>, <code>sdBox</code>, <code>sdTriangle</code>, circle).
+              Every shape uses a <strong>Signed Distance Function (SDF)</strong> — a formula that measures the exact distance from any pixel to a line, box, triangle, or circle.
+              That gives silky-smooth edges at any resolution! When you set <code>glow 0.7</code>, pixels just outside the shape softly fade out like a neon sign, and <code>fx bloom</code> adds a true multi-pass optical blur around the brightest spots.
             </p>
-            <ul>
-              <li><strong>Infinite-Res AA:</strong> Coverage is <code>1.0 - smoothstep(-0.5, 1.0, d)</code>, giving crisp vector strokes at any zoom.</li>
-              <li><strong>Neon Glow &amp; Additive Blend:</strong> Shapes with <code>glow &gt; 0</code> add an exponential aura <code>exp(-max(d, 0.0) / radius)</code>; <code>blend add</code> accumulates overlapping beams like lasers.</li>
-              <li><strong>2-Pass Bloom:</strong> Pass 2 extracts bright pixels (<code>lum &gt; 0.55</code>) into a 1/3-res FBO, runs H+V Gaussian blurs, and Pass 3 composites it back.</li>
-            </ul>
           </div>
 
-          <div class="mode-card">
+          <div class="mode-row">
             <div class="mode-label">MODE 3 • 3D RAYMARCHING</div>
-            <h3>How <code>mode 3d</code> Works</h3>
+            <h3>How <code>mode 3d</code> Works (No 3D Meshes Required!)</h3>
             <p>
-              There are <strong>zero 3D polygon meshes</strong>. <code>FRAG_SCENE_3D</code> shoots a 3D ray from <code>uCamPos</code> through each pixel using <strong>Sphere Tracing</strong>:
+              Most 3D engines build objects out of thousands of tiny triangles. TurtleFX uses <strong>Raymarching (Sphere Tracing)</strong> instead!
+              For every pixel on screen, the shader shoots an invisible laser beam out of the camera and takes safe steps forward until the beam touches a sphere, capsule, box, or carved arch.
+              Once it hits, it fires a second beam toward the sun to draw <strong>real soft shadows</strong>, darkens tight corners (ambient occlusion), and adds distance fog!
             </p>
-            <ul>
-              <li><strong>84-Step March:</strong> At <code>p = ro + rd * t</code>, query <code>mapScene(p)</code> for the nearest surface distance <code>h.d</code> and jump <code>t += h.d</code> until <code>h.d &lt; 0.0025</code>.</li>
-              <li><strong>Local Space + CSG:</strong> Each primitive converts <code>p</code> into turtle <code>(right, up, fwd)</code> axes and merges with <code>min</code>, <code>smin</code> (<code>smooth</code>), or <code>max(d, -dPrim)</code> (<code>carve</code>).</li>
-              <li><strong>Lighting:</strong> Hits compute 4-tap tetrahedron normals, 28-step soft shadows, 4-tap AO, specular, emissive glow, and distance fog.</li>
-            </ul>
           </div>
+
+          <div class="mode-row">
+            <div class="mode-label">BONUS • CROSS-MODE MAGIC</div>
+            <h3>Why Retro 3D Takes Just 2 Lines</h3>
+            <p>
+              Because the Post-FX shader is shared by <em>all</em> modes, putting <code>fx retro(320, 180, dither: bayer, palette: gameboy)</code> inside a 3D script simply runs the 3D raymarcher at 320×180 and adds a classic 4×4 checkered dither pattern before mapping brightness to the 4 GameBoy green shades!
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <!-- CHAPTER 10: LIMITS & CURIOUS UNDER-THE-HOOD MAP -->
+      <section id="ch-10" class="doc-section">
+        <div class="section-index">10 / LIMITS &amp; PEEK INSIDE THE C CODE</div>
+        <h2>Engine Limits &amp; Where Everything Lives</h2>
+        <p>
+          Curious how the C11 + raylib engine stores your shapes? Every frame, TurtleFX packs your shapes into floating-point GPU textures
+          (<code>1024×4</code> for 2D, <code>256×5</code> for 3D) so the shaders can read hundreds of shapes without hitting OpenGL limits.
+        </p>
+
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th>What</th><th>Current Engine Limit</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>2D / Retro shapes per frame</td><td><strong>1,024</strong> segments, dots, rects, or filled triangles</td></tr>
+              <tr><td>3D shapes per frame</td><td><strong>256</strong> spheres, capsules, boxes, cylinders, cones, or toruses</td></tr>
+              <tr><td>Items inside a single list</td><td><strong>64</strong> numbers (<code>[0]</code> through <code>[63]</code>)</td></tr>
+              <tr><td>Variables / Custom commands</td><td><strong>256</strong> globals, <strong>256</strong> locals, <strong>64</strong> <code>to ... end</code> commands</td></tr>
+              <tr><td>Nesting depth</td><td><strong>64</strong> nested <code>branch</code>/<code>at</code> blocks, <strong>64</strong> recursion levels, <strong>128</strong> corners per <code>fill</code></td></tr>
+            </tbody>
+          </table>
         </div>
 
         <div class="note-block">
-          <h3>Why Cross-Mode Retro 3D Takes Only Two Lines</h3>
-          <p>
-            Because <strong>Pass 1 (Scene)</strong> and <strong>Pass 3 (Post-FX)</strong> are decoupled in <code>renderer.c</code>,
-            adding <code>fx retro(320, 180, dither: bayer, palette: gameboy)</code> to a <code>mode 3d</code> script simply resizes Pass 1's
-            <code>scene_rt</code> to <code>320×180</code> (<code>TEXTURE_FILTER_POINT</code> — 16× fewer pixels to raymarch!) and enables 4×4 Bayer dithering + GameBoy quantization in Pass 3.
-          </p>
-        </div>
-
-        <h3>The Shared 3-Pass Render Pipeline</h3>
-        <div class="pipeline-bar three-pass">
-          <div class="pipe-node"><strong>Pass 1: Scene SDF</strong><span><code>FRAG_SCENE_2D</code> or <code>FRAG_SCENE_3D</code> → <code>scene_rt</code></span></div>
-          <div class="pipe-node"><strong>Pass 2: Bloom (optional)</strong><span><code>FRAG_BLOOM_EXTRACT</code> + H/V <code>FRAG_BLUR</code> → <code>bloom_a</code></span></div>
-          <div class="pipe-node"><strong>Pass 3: Unified Post-FX</strong><span><code>FRAG_POST</code> (Tone Map, Bayer Dither, Palette, CRT, Vignette) → Screen</span></div>
-        </div>
-      </section>
-
-      <!-- STEP 9 -->
-      <section id="step-9" class="doc-section">
-        <div class="section-index">09 / GPU TEXTURE INTERNALS</div>
-        <h2>CPU-to-GPU Data Packing (<code>RGBA32F</code> Textures)</h2>
-        <p>
-          OpenGL 3.3 uniform arrays have strict size caps. Instead,
-          <a href="https://github.com/xyzzyapps/turtlefx/blob/main/src/renderer.c" target="_blank" rel="noopener"><code>src/renderer.c</code></a>
-          packs every emitted primitive into floating-point <code>RGBA32F</code> data textures (<code>TEXTURE_FILTER_POINT</code>)
-          and uploads them once per frame via <code>UpdateTexture()</code>. Shaders read primitive <code>i</code> with
-          <code>texelFetch(uPrims, ivec2(i, row), 0)</code>.
-        </p>
-
-        <div class="two-col">
-          <div class="note-block">
-            <h3><code>prim2d_tex</code> (1024 × 4 RGBA32F)</h3>
-            <ul>
-              <li><strong>Row 0:</strong> <code>(type, x0, y0, x1)</code></li>
-              <li><strong>Row 1:</strong> <code>(y1, x2/halfW, y2/halfH, radius/angle)</code></li>
-              <li><strong>Row 2:</strong> <code>(r, g, b, a)</code></li>
-              <li><strong>Row 3:</strong> <code>(glow, blendMode, 0, 0)</code></li>
-            </ul>
-          </div>
-          <div class="note-block">
-            <h3><code>prim3d_tex</code> (256 × 5 RGBA32F)</h3>
-            <ul>
-              <li><strong>Row 0:</strong> <code>(type, px, py, pz)</code></li>
-              <li><strong>Row 1:</strong> <code>(fx, fy, fz, param0)</code></li>
-              <li><strong>Row 2:</strong> <code>(ux, uy, uz, param1)</code></li>
-              <li><strong>Row 3:</strong> <code>(r, g, b, param2)</code></li>
-              <li><strong>Row 4:</strong> <code>(matType, matParam, smoothK, opType)</code></li>
-            </ul>
-          </div>
-        </div>
-      </section>
-
-      <!-- STEP 10 -->
-      <section id="step-10" class="doc-section">
-        <div class="section-index">10 / LIMITS &amp; SOURCE MAP</div>
-        <h2>Engine Limits &amp; Codebase Map</h2>
-
-        <div class="two-col">
-          <div class="table-wrap" style="margin:0">
-            <table>
-              <thead>
-                <tr><th>Engine Constant</th><th>Limit</th></tr>
-              </thead>
-              <tbody>
-                <tr><td><code>SCENE_MAX_2D_PRIMS</code></td><td>1,024 primitives / frame</td></tr>
-                <tr><td><code>SCENE_MAX_3D_PRIMS</code></td><td>256 SDF primitives / frame</td></tr>
-                <tr><td><code>LOGO_MAX_LIST</code></td><td>64 numbers / list</td></tr>
-                <tr><td><code>LOGO_MAX_VARS</code></td><td>256 globals, 256 locals</td></tr>
-                <tr><td><code>LOGO_MAX_PROCS</code></td><td>64 user procedures</td></tr>
-                <tr><td><code>LOGO_MAX_STACK</code></td><td>64 recursion frames</td></tr>
-                <tr><td><code>LOGO_MAX_TURTLE_STK</code></td><td>64 nested <code>branch</code>/<code>at</code> blocks</td></tr>
-                <tr><td><code>LOGO_MAX_FILL_PTS</code></td><td>128 polygon vertices / <code>fill</code></td></tr>
-              </tbody>
-            </table>
-          </div>
-
-          <div class="note-block">
-            <h3>Source File Map</h3>
-            <ul>
-              <li><a href="https://github.com/xyzzyapps/turtlefx/blob/main/src/logo_lang.h" target="_blank" rel="noopener"><code>src/logo_lang.h</code></a> — AST, <code>LogoVM</code>, <code>TurtleState</code>, and <code>SceneIR</code> structs.</li>
-              <li><a href="https://github.com/xyzzyapps/turtlefx/blob/main/src/logo_parser.c" target="_blank" rel="noopener"><code>src/logo_parser.c</code></a> — Lexer &amp; recursive-descent parser.</li>
-              <li><a href="https://github.com/xyzzyapps/turtlefx/blob/main/src/logo_vm.c" target="_blank" rel="noopener"><code>src/logo_vm.c</code></a> — Interpreter, 2D/3D turtle, ear-clipping triangulator, and built-ins.</li>
-              <li><a href="https://github.com/xyzzyapps/turtlefx/blob/main/src/renderer.c" target="_blank" rel="noopener"><code>src/renderer.c</code></a> — <code>RGBA32F</code> texture packer &amp; multi-pass FBO orchestrator.</li>
-              <li><a href="https://github.com/xyzzyapps/turtlefx/blob/main/src/shaders.h" target="_blank" rel="noopener"><code>src/shaders.h</code></a> — All 5 embedded GLSL 330 shaders.</li>
-              <li><a href="https://github.com/xyzzyapps/turtlefx/blob/main/src/main.c" target="_blank" rel="noopener"><code>src/main.c</code></a> — raylib window loop, hot-reload watcher, CLI <code>--verify</code> / <code>--render-test</code>, and <code>F12</code> screenshots.</li>
-            </ul>
-          </div>
+          <h3>Explore the C Source Files on GitHub</h3>
+          <ul>
+            <li><a href="https://github.com/xyzzyapps/turtlefx/blob/main/src/logo_parser.c" target="_blank" rel="noopener"><code>src/logo_parser.c</code></a> — Reads your <code>.logo</code> text and checks syntax.</li>
+            <li><a href="https://github.com/xyzzyapps/turtlefx/blob/main/src/logo_vm.c" target="_blank" rel="noopener"><code>src/logo_vm.c</code></a> — Runs your code, moves the 2D/3D turtle, and fills concave polygons.</li>
+            <li><a href="https://github.com/xyzzyapps/turtlefx/blob/main/src/renderer.c" target="_blank" rel="noopener"><code>src/renderer.c</code></a> — Sends shapes to the GPU and manages the 3 render passes.</li>
+            <li><a href="https://github.com/xyzzyapps/turtlefx/blob/main/src/shaders.h" target="_blank" rel="noopener"><code>src/shaders.h</code></a> — All 5 hidden OpenGL 3.3 GLSL shaders (2D, 3D, Bloom, Blur, Post-FX).</li>
+            <li><a href="https://github.com/xyzzyapps/turtlefx/blob/main/src/main.c" target="_blank" rel="noopener"><code>src/main.c</code></a> — Window, keyboard controls, live hot-reload on save, and <code>F12</code> screenshots.</li>
+          </ul>
         </div>
       </section>
     </main>
@@ -748,7 +819,7 @@ fx crt(scanlines: 0.22, curve: 0.06)</code></pre>
   <footer class="footer">
     <div class="container footer-inner">
       <span><strong>TurtleFX</strong> — Made with Gemini Neon • Copyright © 2026 Xyzzy Apps</span>
-      <span><a href="index.html">← Interactive Tutorial</a> · <a href="https://github.com/xyzzyapps/turtlefx/blob/main/LICENSE" target="_blank" rel="noopener">PolyForm Noncommercial 1.0.0</a></span>
+      <span><a href="index.html">← Interactive Tutorial &amp; Sandbox</a> · <a href="https://github.com/xyzzyapps/turtlefx/blob/main/LICENSE" target="_blank" rel="noopener">PolyForm Noncommercial 1.0.0</a></span>
     </div>
   </footer>
 
