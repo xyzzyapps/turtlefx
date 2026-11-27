@@ -1,6 +1,9 @@
 #include "renderer.h"
 #include "shaders.h"
 
+#include <math.h>
+#include <raymath.h>
+#include <rlgl.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -122,6 +125,135 @@ static void ensure_bloom_rts(LogoRenderer *r, int w, int h) {
     }
 }
 
+/* ---- Inline ASCII Pixel-Art Sprite Palette & Texture / Model Caches ---- */
+static Color ascii_pixel_color(char c) {
+    switch (c) {
+        case 'K': return (Color){18, 12, 28, 255};
+        case 'k': return (Color){36, 28, 52, 255};
+        case 'W': return (Color){242, 234, 220, 255};
+        case 'w': return (Color){188, 178, 166, 255};
+        case 'S': return (Color){238, 186, 152, 255};
+        case 's': return (Color){188, 132, 102, 255};
+        case 'R': return (Color){224, 36, 56, 255};
+        case 'r': return (Color){142, 22, 38, 255};
+        case 'D': return (Color){96, 16, 30, 255};
+        case 'O': return (Color){255, 118, 30, 255};
+        case 'o': return (Color){196, 72, 20, 255};
+        case 'Y': return (Color){255, 212, 58, 255};
+        case 'y': return (Color){198, 146, 36, 255};
+        case 'G': return (Color){46, 230, 138, 255};
+        case 'g': return (Color){24, 150, 88, 255};
+        case 'C': return (Color){56, 189, 248, 255};
+        case 'c': return (Color){28, 116, 168, 255};
+        case 'B': return (Color){46, 40, 64, 255};
+        case 'b': return (Color){28, 24, 42, 255};
+        case 'M': return (Color){154, 160, 180, 255};
+        case 'm': return (Color){96, 100, 118, 255};
+        case 'N': return (Color){118, 76, 46, 255};
+        case 'n': return (Color){74, 46, 28, 255};
+        case 'P': return (Color){158, 66, 234, 255};
+        case 'p': return (Color){96, 36, 148, 255};
+        default:  return (Color){0, 0, 0, 0};
+    }
+}
+
+static Texture2D rasterize_inline_sprite(const char *art) {
+    /* First pass: measure bounding rows/cols (ignoring empty leading/trailing lines) */
+    int max_w = 0, h = 0;
+    const char *p = art;
+    while (*p) {
+        const char *line = p;
+        while (*p && *p != '\n') p++;
+        int len = (int)(p - line);
+        while (len > 0 && (line[len - 1] == '\r' || line[len - 1] == ' ' || line[len - 1] == '\t')) len--;
+        if (len > 0) {
+            if (len > max_w) max_w = len;
+            h++;
+        }
+        if (*p == '\n') p++;
+    }
+    if (max_w <= 0 || h <= 0) return (Texture2D){0};
+
+    Image img = GenImageColor(max_w, h, BLANK);
+    int row = 0;
+    p = art;
+    while (*p && row < h) {
+        const char *line = p;
+        while (*p && *p != '\n') p++;
+        int len = (int)(p - line);
+        while (len > 0 && (line[len - 1] == '\r' || line[len - 1] == ' ' || line[len - 1] == '\t')) len--;
+        if (len > 0) {
+            for (int x = 0; x < len; x++) {
+                Color c = ascii_pixel_color(line[x]);
+                if (c.a > 0) ImageDrawPixel(&img, x, row, c);
+            }
+            row++;
+        }
+        if (*p == '\n') p++;
+    }
+    Texture2D tex = LoadTextureFromImage(img);
+    SetTextureFilter(tex, TEXTURE_FILTER_POINT);
+    SetTextureWrap(tex, TEXTURE_WRAP_CLAMP);
+    UnloadImage(img);
+    return tex;
+}
+
+static Texture2D get_sprite_texture(LogoRenderer *r, const PrimSprite *sp) {
+    if (sp->inline_art && sp->inline_art[0]) {
+        uint64_t h = fnv1a_hash(sp->inline_art);
+        for (int i = 0; i < r->tex_cache_count; i++) {
+            if (r->tex_cache[i].inline_hash == h) return r->tex_cache[i].tex;
+        }
+        if (r->tex_cache_count >= RENDERER_MAX_CACHED_TEXTURES) return (Texture2D){0};
+        CachedTexture *slot = &r->tex_cache[r->tex_cache_count++];
+        memset(slot, 0, sizeof(*slot));
+        slot->inline_hash = h;
+        slot->tex = rasterize_inline_sprite(sp->inline_art);
+        slot->loaded = (slot->tex.id != 0);
+        return slot->tex;
+    }
+    if (!sp->path[0]) return (Texture2D){0};
+    for (int i = 0; i < r->tex_cache_count; i++) {
+        if (r->tex_cache[i].inline_hash == 0 && strcmp(r->tex_cache[i].path, sp->path) == 0) {
+            return r->tex_cache[i].tex;
+        }
+    }
+    if (r->tex_cache_count >= RENDERER_MAX_CACHED_TEXTURES) return (Texture2D){0};
+    CachedTexture *slot = &r->tex_cache[r->tex_cache_count++];
+    memset(slot, 0, sizeof(*slot));
+    snprintf(slot->path, sizeof(slot->path), "%s", sp->path);
+    if (FileExists(sp->path)) {
+        slot->tex = LoadTexture(sp->path);
+        SetTextureFilter(slot->tex, TEXTURE_FILTER_POINT);
+        SetTextureWrap(slot->tex, TEXTURE_WRAP_CLAMP);
+        slot->loaded = (slot->tex.id != 0);
+    }
+    return slot->tex;
+}
+
+static Model *get_cached_model(LogoRenderer *r, const char *path) {
+    if (!path || !path[0]) return NULL;
+    for (int i = 0; i < r->model_cache_count; i++) {
+        if (strcmp(r->model_cache[i].path, path) == 0) {
+            return r->model_cache[i].loaded ? &r->model_cache[i].model : NULL;
+        }
+    }
+    if (r->model_cache_count >= RENDERER_MAX_CACHED_MODELS) return NULL;
+    CachedModel *slot = &r->model_cache[r->model_cache_count++];
+    memset(slot, 0, sizeof(*slot));
+    snprintf(slot->path, sizeof(slot->path), "%s", path);
+    if (FileExists(path)) {
+        slot->model = LoadModel(path);
+        slot->loaded = (slot->model.meshCount > 0);
+        if (slot->loaded) {
+            for (int m = 0; m < slot->model.materialCount; m++) {
+                slot->model.materials[m].shader = r->sh_model;
+            }
+        }
+    }
+    return slot->loaded ? &slot->model : NULL;
+}
+
 void renderer_init(LogoRenderer *r) {
     memset(r, 0, sizeof(*r));
     r->sh_2d            = LoadShaderFromMemory(NULL, FRAG_SCENE_2D);
@@ -129,6 +261,8 @@ void renderer_init(LogoRenderer *r) {
     r->sh_bloom_extract = LoadShaderFromMemory(NULL, FRAG_BLOOM_EXTRACT);
     r->sh_blur          = LoadShaderFromMemory(NULL, FRAG_BLUR);
     r->sh_post          = LoadShaderFromMemory(NULL, FRAG_POST);
+    r->sh_billboard     = LoadShaderFromMemory(NULL, FRAG_BILLBOARD_CUTOUT);
+    r->sh_model         = LoadShaderFromMemory(VERT_MODEL_LIT, FRAG_MODEL_LIT);
 
     Image white = GenImageColor(1, 1, WHITE);
     r->white_tex = LoadTextureFromImage(white);
@@ -146,7 +280,15 @@ void renderer_shutdown(LogoRenderer *r) {
     UnloadShader(r->sh_bloom_extract);
     UnloadShader(r->sh_blur);
     UnloadShader(r->sh_post);
+    UnloadShader(r->sh_billboard);
+    UnloadShader(r->sh_model);
     if (r->sh_custom.id != 0) UnloadShader(r->sh_custom);
+    for (int i = 0; i < r->tex_cache_count; i++) {
+        if (r->tex_cache[i].loaded) UnloadTexture(r->tex_cache[i].tex);
+    }
+    for (int i = 0; i < r->model_cache_count; i++) {
+        if (r->model_cache[i].loaded) UnloadModel(r->model_cache[i].model);
+    }
     UnloadTexture(r->white_tex);
     UnloadTexture(r->prim2d_tex);
     UnloadTexture(r->prim3d_tex);
@@ -230,11 +372,24 @@ void renderer_draw_to(LogoRenderer *r, const SceneIR *s, int screen_w, int scree
         int shadows = s->light_shadows ? 1 : 0;
         int fog_en  = s->fog_enabled ? 1 : 0;
 
+        Camera3D cam = {0};
+        cam.position   = (Vector3){s->cam_pos[0], s->cam_pos[1], s->cam_pos[2]};
+        cam.target     = (Vector3){s->cam_look[0], s->cam_look[1], s->cam_look[2]};
+        cam.up         = (Vector3){0.0f, 1.0f, 0.0f};
+        cam.fovy       = s->cam_fov;
+        cam.projection = CAMERA_PERSPECTIVE;
+
+        float aspect = (float)target_w / (float)(target_h > 0 ? target_h : 1);
+        Matrix matView = MatrixLookAt(cam.position, cam.target, cam.up);
+        Matrix matProj = MatrixPerspective(cam.fovy * DEG2RAD, aspect, 0.01f, 1000.0f);
+        Matrix matVP   = MatrixMultiply(matView, matProj);
+
         SetShaderValue(r->sh_3d, GetShaderLocation(r->sh_3d, "uPrimCount"), &s->prim3d_count, SHADER_UNIFORM_INT);
         SetShaderValue(r->sh_3d, GetShaderLocation(r->sh_3d, "uResolution"), res, SHADER_UNIFORM_VEC2);
         SetShaderValue(r->sh_3d, GetShaderLocation(r->sh_3d, "uCamPos"), s->cam_pos, SHADER_UNIFORM_VEC3);
         SetShaderValue(r->sh_3d, GetShaderLocation(r->sh_3d, "uCamLook"), s->cam_look, SHADER_UNIFORM_VEC3);
         SetShaderValue(r->sh_3d, GetShaderLocation(r->sh_3d, "uCamFov"), &s->cam_fov, SHADER_UNIFORM_FLOAT);
+        SetShaderValueMatrix(r->sh_3d, GetShaderLocation(r->sh_3d, "uViewProj"), matVP);
         SetShaderValue(r->sh_3d, GetShaderLocation(r->sh_3d, "uSkyTop"), s->sky_top, SHADER_UNIFORM_VEC3);
         SetShaderValue(r->sh_3d, GetShaderLocation(r->sh_3d, "uSkyBot"), s->sky_bot, SHADER_UNIFORM_VEC3);
         SetShaderValue(r->sh_3d, GetShaderLocation(r->sh_3d, "uLightDir"), s->light_dir, SHADER_UNIFORM_VEC3);
@@ -247,13 +402,84 @@ void renderer_draw_to(LogoRenderer *r, const SceneIR *s, int screen_w, int scree
 
         BeginTextureMode(r->scene_rt);
             ClearBackground(BLACK);
+            rlEnableDepthTest();
+            rlEnableDepthMask();
             BeginShaderMode(r->sh_3d);
                 SetShaderValueTexture(r->sh_3d, GetShaderLocation(r->sh_3d, "uPrims"), r->prim3d_tex);
                 DrawTexturePro(r->white_tex,
                                (Rectangle){0, 0, 1, 1},
                                (Rectangle){0, 0, (float)target_w, (float)target_h},
                                (Vector2){0, 0}, 0.0f, WHITE);
+                rlDrawRenderBatchActive();
             EndShaderMode();
+
+            /* Depth-composited raylib 3D pass: .obj/.glb models + 2.5D billboard sprites! */
+            if (s->model_count > 0 || s->sprite_count > 0) {
+                SetShaderValue(r->sh_model, GetShaderLocation(r->sh_model, "uLightDir"), s->light_dir, SHADER_UNIFORM_VEC3);
+                SetShaderValue(r->sh_model, GetShaderLocation(r->sh_model, "uLightColor"), s->light_color, SHADER_UNIFORM_VEC3);
+                SetShaderValue(r->sh_model, GetShaderLocation(r->sh_model, "uSkyTop"), s->sky_top, SHADER_UNIFORM_VEC3);
+                SetShaderValue(r->sh_model, GetShaderLocation(r->sh_model, "uSkyBot"), s->sky_bot, SHADER_UNIFORM_VEC3);
+
+                BeginMode3D(cam);
+                    for (int i = 0; i < s->model_count; i++) {
+                        const PrimModel *md = &s->models[i];
+                        Model *m = get_cached_model(r, md->path);
+                        if (!m) continue;
+                        Vector3 up  = {md->ux, md->uy, md->uz};
+                        Vector3 fwd = {md->fx, md->fy, md->fz};
+                        Vector3 rgt = Vector3Normalize(Vector3CrossProduct(up, fwd));
+                        Matrix rot = {
+                            rgt.x, up.x, fwd.x, 0.0f,
+                            rgt.y, up.y, fwd.y, 0.0f,
+                            rgt.z, up.z, fwd.z, 0.0f,
+                            0.0f,  0.0f, 0.0f,  1.0f
+                        };
+                        m->transform = rot;
+                        Color tint = {
+                            (unsigned char)(fminf(fmaxf(md->r, 0.0f), 1.0f) * 255.0f),
+                            (unsigned char)(fminf(fmaxf(md->g, 0.0f), 1.0f) * 255.0f),
+                            (unsigned char)(fminf(fmaxf(md->b, 0.0f), 1.0f) * 255.0f),
+                            (unsigned char)(fminf(fmaxf(md->a, 0.0f), 1.0f) * 255.0f)
+                        };
+                        Vector3 pos = {md->px, md->py, md->pz};
+                        if (md->wireframe) DrawModelWires(*m, pos, md->scale, tint);
+                        else               DrawModel(*m, pos, md->scale, tint);
+                    }
+
+                    if (s->sprite_count > 0) {
+                        BeginShaderMode(r->sh_billboard);
+                        for (int i = 0; i < s->sprite_count; i++) {
+                            const PrimSprite *sp = &s->sprites[i];
+                            Texture2D tex = get_sprite_texture(r, sp);
+                            if (tex.id == 0) continue;
+                            float fw = (float)tex.width  / (float)sp->cols;
+                            float fh = (float)tex.height / (float)sp->rows;
+                            int total = sp->cols * sp->rows;
+                            int fidx = ((sp->frame % total) + total) % total;
+                            int col = fidx % sp->cols;
+                            int row = fidx / sp->cols;
+                            Rectangle src = {
+                                col * fw, row * fh,
+                                sp->flip_x ? -fw : fw, fh
+                            };
+                            float aspect_sp = (fh > 0.0f) ? (fw / fh) : 1.0f;
+                            Vector2 bsize = {sp->size * aspect_sp, sp->size};
+                            /* Anchor bottom-center of billboard on (x, y, z) so feet stand on floor! */
+                            Vector3 pos = {sp->x, sp->y + bsize.y * 0.5f, sp->z};
+                            Vector2 origin = {bsize.x * 0.5f, bsize.y * 0.5f};
+                            Color tint = {
+                                (unsigned char)(fminf(fmaxf(sp->r, 0.0f), 1.0f) * 255.0f),
+                                (unsigned char)(fminf(fmaxf(sp->g, 0.0f), 1.0f) * 255.0f),
+                                (unsigned char)(fminf(fmaxf(sp->b, 0.0f), 1.0f) * 255.0f),
+                                (unsigned char)(fminf(fmaxf(sp->a, 0.0f), 1.0f) * 255.0f)
+                            };
+                            DrawBillboardPro(cam, tex, src, pos, (Vector3){0, 1, 0}, bsize, origin, 0.0f, tint);
+                        }
+                        EndShaderMode();
+                    }
+                EndMode3D();
+            }
+            rlDisableDepthTest();
         EndTextureMode();
     } else {
         upload_prims2d(r, s);
@@ -275,6 +501,34 @@ void renderer_draw_to(LogoRenderer *r, const SceneIR *s, int screen_w, int scree
                                (Rectangle){0, 0, (float)target_w, (float)target_h},
                                (Vector2){0, 0}, 0.0f, WHITE);
             EndShaderMode();
+
+            /* Draw 2D / Retro sprites right over SDF shapes */
+            for (int i = 0; i < s->sprite_count; i++) {
+                const PrimSprite *sp = &s->sprites[i];
+                Texture2D tex = get_sprite_texture(r, sp);
+                if (tex.id == 0) continue;
+                float fw = (float)tex.width  / (float)sp->cols;
+                float fh = (float)tex.height / (float)sp->rows;
+                int total = sp->cols * sp->rows;
+                int fidx = ((sp->frame % total) + total) % total;
+                int col = fidx % sp->cols;
+                int row = fidx / sp->cols;
+                Rectangle src = { col * fw, row * fh, sp->flip_x ? -fw : fw, fh };
+                float aspect_sp = (fh > 0.0f) ? (fw / fh) : 1.0f;
+                float dw = sp->size * aspect_sp;
+                float dh = sp->size;
+                float sx = is_retro ? sp->x : (target_w * 0.5f + sp->x);
+                float sy = is_retro ? sp->y : (target_h * 0.5f - sp->y);
+                Rectangle dst = { sx, sy, dw, dh };
+                Vector2 origin = { dw * 0.5f, dh * 0.5f };
+                Color tint = {
+                    (unsigned char)(fminf(fmaxf(sp->r, 0.0f), 1.0f) * 255.0f),
+                    (unsigned char)(fminf(fmaxf(sp->g, 0.0f), 1.0f) * 255.0f),
+                    (unsigned char)(fminf(fmaxf(sp->b, 0.0f), 1.0f) * 255.0f),
+                    (unsigned char)(fminf(fmaxf(sp->a, 0.0f), 1.0f) * 255.0f)
+                };
+                DrawTexturePro(tex, src, dst, origin, sp->rotation, tint);
+            }
         EndTextureMode();
     }
 

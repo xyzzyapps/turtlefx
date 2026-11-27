@@ -1,4 +1,9 @@
-; Example 7: Hades-Inspired Isometric Training Courtyard (HD Pixel-Art 3D SDF + Actors)
+; Example 7: Hades / Diablo-Inspired HD-2D Isometric Courtyard
+; Combines ALL 3 TurtleFX 3D systems in one depth-composited scene:
+;   1. Procedural Gothic 3D SDFs (`material tiles`, `material stone`, `carve`, dynamic brazier lights)
+;   2. Native raylib `.obj` 3D Models (`model("examples/models/gothic_pillar.obj")`)
+;   3. Multi-frame 2.5D Pixel-Art Billboard Sprites (`sprite(...)` with inline """...""" art!)
+;
 ; Controls:
 ;   WASD / Arrow Keys : Isometric movement
 ;   Space / J         : 3-Hit Stygian Blade Slash Combo
@@ -6,13 +11,157 @@
 ;   E / K             : Cast Bloodstone Projectile
 
 mode 3d
-sky gradient(#110a1e, #2b1226)
-light sun(dir: [-0.52, -0.84, -0.42], color: #ffc89e, shadows: soft)
-fx retro(400, 225, dither: off)
+sky gradient(#0d0818, #241022)
+light sun(dir: [-0.52, -0.84, -0.42], color: #ffc8a0, shadows: soft)
+fx retro(420, 236, dither: off)
 fx bloom(strength: 0.42, radius: 9)
-fx vignette(0.28)
+fx vignette(0.32)
 
-; Bespoke HD Pixel-Art + Hades Comic Ink-Outline + Cel-Bayer Dither Shader!
+; ============================================================================
+;  1. Hand-Crafted Pixel-Art Character Sprites (Inline """...""" ASCII Art!)
+; ============================================================================
+
+; Zagreus — Idle / Ready Stance (18x20 pixel art: spiky dark hair, gold laurel,
+; peach face, gold skull pauldron, flowing crimson cloak, obsidian armor, Stygian blade)
+let zag_idle = """
+......KK.K.KK.....
+.....KkkKkKkkK....
+....KKYYYYYYYKK...
+....KKSSSSSSKK....
+....KSkSSSkSK.....
+.....KSSSSSK......
+...KKYYKkkKKK.....
+..KRYKKRkkkRKK....
+..KRRKRRRRRkkKK...
+.KRRrKRRrRRkkkK...
+.KRrDKRrrrRkkKWR..
+.KRDDKkkkkkkkKOYR.
+.KrDDKkkYYkkKORY..
+..KDDKkkkkkKORY...
+...KKKkkKkkKRO....
+.....Kkk.kkKK.....
+.....Kkk.kkK......
+.....KOO.OOK......
+....KOYO.OYOK.....
+....KKKK.KKKK.....
+"""
+
+; Zagreus — Running / Stepping Frame
+let zag_run = """
+.......KK.K.KK....
+......KkkKkKkkK...
+.....KKYYYYYYYKK..
+.....KKSSSSSSKK...
+.....KSkSSSkSK....
+......KSSSSSK.....
+..KKKYYKkkKKK.....
+.KRRRKKRkkkRKK....
+.KRRrKRRRRRkkKK...
+KRRDDKRRrRRkkkKK..
+KRrDDKRrrrRkkKWR..
+.KDDDKkkkkkkkKOYR.
+..KDDKkkYYkkKORY..
+...KKKkkkkkKKRO...
+....KKkk.kkkK.....
+...KkkK...KkkK....
+..KOOOK....KOOK...
+..KOYOK....KOYK...
+..KKKK......KKK...
+..................
+"""
+
+; Zagreus — Stygian Blade Cleave Frame
+let zag_slash = """
+.....KK.K.KK......
+....KkkKkKkkK.....
+...KKYYYYYYYKK....
+...KKSSSSSSKK.....
+...KSkSSSkSK......
+....KSSSSSK.......
+..KKYYKkkKKK..KW..
+.KRRKKRkkkRKKKWO..
+.KRRKRRRRRkkKORRY.
+KRRrKRRrRRkkKORYK.
+KRDDKRrrrRkkKK....
+.KDDKkkkkkkkK.....
+..KKKkkYYkkK......
+....KkkkkkkK......
+...KkkK..KkkK.....
+..KkkK....KkkK....
+..KOOK....KOOOK...
+.KOYOK.....KOYOK..
+.KKKK.......KKKK..
+..................
+"""
+
+; Skelly — Immortal Training Skeleton (16x20 pixel art: ivory skull, distinct emerald
+; eyes, nasal cavity, grinning teeth, individual ribs, wooden training cross-post)
+let skelly_idle = """
+.....KKKKKK.....
+....KWWWWWWK....
+...KWWWWWWWWK...
+...KWWGWWGWWK...
+...KWKGWKGWWK...
+...KWWWKKWWWK...
+....KWWWWWwK....
+....KWKWKWKK....
+.....KKKKKK.....
+..KKK.KWWK.KKK..
+.KWWWKWWWWKWWWK.
+.KwwKKwWWwKKwwK.
+..KK..KWWK..KK..
+.....KWKKWK.....
+.....KWWWWK.....
+.....KWKKWK.....
+......KNNK......
+......KNnK......
+....KKNNNNKK....
+...KKKKKKKKKK...
+"""
+
+; Skelly — Recoiling / Rattling Frame on Hit!
+let skelly_hurt = """
+......KKKKKK....
+.....KWWWWWWK...
+....KWWWWWWWWK..
+....KWWGWWGWWK..
+....KWKGWKGWWK..
+....KWWWKKWWWK..
+.....KWWWWWwK...
+..KK.KWKWKWKK...
+.KWWK.KKKKKK.KK.
+.KwwKKKWWK..KWWK
+..KKKWWWWWWKwwK.
+....KKwWWwKKKK..
+.....KWWK.......
+....KWKKWK......
+....KWWWWK......
+.....KNNK.......
+.....KNnK.......
+....KNNNNKK.....
+...KNNnNNnNK....
+...KKKKKKKKK....
+"""
+
+; Ornate Breakable Underworld Urn (12x14 pixel art)
+let urn_art = """
+...KKKKKK...
+..KYYYYYYK..
+...KyyyyK...
+..KOOOOOOK..
+.KOOYOOYOOoK
+.KOOoOOoOOoK
+.KNooOOooNoK
+.KNnooooNnoK
+..KNnnnnNnK.
+..KnnNNnnK..
+...KnnnnK...
+..KKKKKKKK..
+"""
+
+; ============================================================================
+;  2. Bespoke HD Pixel-Art + Ink-Outline + Cel-Bayer Post Shader
+; ============================================================================
 let hades_pixel_fx = """
 #version 330
 in vec2 fragTexCoord;
@@ -34,10 +183,8 @@ float bayer4(ivec2 p) {
     return (m[idx] / 16.0) - 0.5;
 }
 
-float luma(vec3 c) { return dot(c, vec3(0.299, 0.587, 0.114)); }
-
 void main() {
-    vec2 grid = vec2(400.0, 225.0);
+    vec2 grid = vec2(420.0, 236.0);
     ivec2 px = ivec2(floor(fragTexCoord * grid));
     vec2 uv = (vec2(px) + 0.5) / grid;
     vec2 stepUV = 1.0 / grid;
@@ -48,27 +195,18 @@ void main() {
     vec3 cU = texture(texture0, uv - vec2(0.0, stepUV.y)).rgb;
     vec3 cD = texture(texture0, uv + vec2(0.0, stepUV.y)).rgb;
 
-    // 1. Crisp 1-pixel Hades comic-ink outlines on silhouette/color discontinuities
-    float eH = length(cR - cL);
-    float eV = length(cD - cU);
-    float edge = max(eH, eV);
+    // Subtle dark ink outline on major 3D architectural edges (keeps sprites & glow crisp)
+    float edge = max(length(cR - cL), length(cD - cU));
     float bright = max(max(c.r, c.g), c.b);
-    // Keep glowing flames/slashes luminous while inking stone, characters & props
-    float inkMask = smoothstep(0.16, 0.34, edge) * (1.0 - smoothstep(0.75, 1.05, bright));
+    float ink = smoothstep(0.32, 0.56, edge) * (1.0 - smoothstep(0.65, 1.0, bright));
 
-    // 2. Subtle ordered Bayer dither + painterly pixel-art cel quantization
-    float d = bayer4(px) * 0.055;
-    vec3 q = floor(clamp(c + d, 0.0, 1.0) * 11.0 + 0.5) / 11.0;
+    // Painterly Bayer dither + 15-step HD pixel-art color quantization
+    float d = bayer4(px) * 0.036;
+    vec3 q = floor(clamp(c + d, 0.0, 1.0) * 15.0 + 0.5) / 15.0;
 
-    // 3. Rich Underworld color grade (deep plum shadows, punchy warm highlights)
-    q = mix(q, q * vec3(1.06, 0.98, 1.04), 0.35);
-    vec3 inkCol = vec3(0.04, 0.025, 0.07);
-    vec3 outCol = mix(q, inkCol, inkMask * 0.78);
-
-    // Subtle crisp pixel micro-grid bevel
-    vec2 sub = fract(fragTexCoord * grid);
-    float pxShade = (sub.x > 0.06 && sub.y > 0.06) ? 1.0 : 0.94;
-    finalColor = vec4(clamp(outCol * pxShade, 0.0, 1.0), 1.0);
+    // Warm Diablo/Hades shadow grading
+    vec3 outCol = mix(q, vec3(0.04, 0.02, 0.07), ink * 0.42);
+    finalColor = vec4(clamp(outCol, 0.0, 1.0), 1.0);
 }
 """
 
@@ -78,13 +216,13 @@ let cam_x = 0.0
 let cam_z = 0.0
 let shake = 0.0
 
-; --- 1. 3D Hit / Explosion Spark Actor ---
+; --- 3D Hit / Explosion Spark Actor ---
 actor spark3d
   let vx = 0
   let vy = 3.5
   let vz = 0
   let life = 0.35
-  let hue_mode = 0    ; 0 = fiery gold/red, 1 = Styx emerald
+  let hue_mode = 0
 
   on frame(dt)
     x += vx * dt
@@ -102,29 +240,26 @@ actor spark3d
         if life > 0.18 [ material emissive(#ffec27, strength: 2.4) ]
         else           [ material emissive(#ff3b2f, strength: 2.1) ]
       ]
-      sphere(0.11 * (life / 0.35) + 0.05)
+      sphere(0.10 * (life / 0.35) + 0.05)
     ]
   end
 end
 
-; --- 2. Fiery Dash Afterimage Ghost Actor ---
+; --- Fiery Dash Afterimage Ghost Actor (Translucent Crimson Sprite Ghost!) ---
 actor dash_ghost
-  let life = 0.22
-  let yaw_deg = 0
+  let life = 0.20
+  let flipped = 0
 
   on frame(dt)
     life -= dt
     if life <= 0 [ despawn ]
-    let s = life / 0.22
-    at x (y + 0.65) z [
-      yaw yaw_deg
-      material emissive(#ff5126, strength: 1.9 * s)
-      capsule(0.65 * s, 0.24 * s)
+    at x 0.02 z [
+      sprite(zag_run, size: 2.1, flip_x: flipped, tint: #ff5522)
     ]
   end
 end
 
-; --- 3. Wide Curved Crimson Hades Sword Cleave Fan Actor ---
+; --- Wide Curved Crimson Hades Sword Cleave Fan Actor ---
 actor slash_arc
   let life = 0.18
   let yaw_deg = 0
@@ -140,13 +275,11 @@ actor slash_arc
     at x 0.92 z [
       yaw yaw_deg
       if combo_step == 3 [
-        ; Combo Finisher: heavy golden-crimson shockwave ring
         material emissive(#ff2a4b, strength: 2.7)
         torus(1.0 + p * 1.25, 0.14 * (1.0 - p * 0.55))
         material emissive(#ffd166, strength: 2.4)
         torus(0.75 + p * 0.95, 0.08 * (1.0 - p * 0.5))
       ] else [
-        ; 3-segment curved crescent slash fan (true Hades sword cleave!)
         let base_a = (p - 0.5) * 95 * dir
         branch [
           yaw (base_a - 28 * dir)
@@ -174,7 +307,7 @@ actor slash_arc
   end
 end
 
-; --- 4. Bloodstone Cast Projectile Actor ---
+; --- Bloodstone Cast Projectile Actor ---
 actor bloodstone
   let vx = 0
   let vz = 0
@@ -213,7 +346,7 @@ actor bloodstone
   end
 end
 
-; --- 5. Breakable Underworld Golden Urn Actor ---
+; --- Breakable Underworld Urn Actor (2.5D Pixel-Art Billboard!) ---
 actor urn
   let alive_urn = 1
   let respawn_t = 0
@@ -233,13 +366,11 @@ actor urn
       stop
     ]
 
-    at x 0.45 z [
-      material glossy(#c67d36, rough: 0.28)
-      sphere(0.42)
-      at x 0.82 z [
-        material glossy(#f5c04f, rough: 0.22)
-        torus(0.24, 0.085)
-      ]
+    ; Ground contact shadow + 2.5D ornate pixel-art urn sprite
+    at x 0.02 z [
+      material matte(#120c19)
+      cylinder(radius: 0.40, height: 0.04)
+      sprite(urn_art, size: 1.05)
     ]
   end
 
@@ -258,14 +389,14 @@ actor urn
   end
 end
 
-; --- 6. Skelly — Immortal Training Dummy Actor ---
+; --- Skelly — Immortal Training Dummy (2.5D Pixel-Art Sprite + 3D HP Bar!) ---
 actor skelly
   let max_hp = 12
   let hp = 12
   let flash = 0
   let recoil = 0
   let respawn_t = 0
-  let home_x = 1.40
+  let home_x = 1.45
   let home_z = -0.65
 
   on frame(dt)
@@ -297,47 +428,21 @@ actor skelly
     x = lerp(x, home_x, clamp(dt * 5.0, 0, 1))
     z = lerp(z, home_z, clamp(dt * 5.0, 0, 1))
 
-    let wobble = sin(time * 3.5) * 3.0
-    if recoil > 0 [ wobble = -22.0 * (recoil / 0.18) ]
-
-    ; Wooden training dais
-    at x 0.18 z [
-      material matte(#5a3c28)
-      cylinder(radius: 0.55, height: 0.36)
-    ]
-
-    ; Skelly's skeleton silhouette (spine, rib bars, arms, skull + emerald eyes)
-    at x 0.36 z [
-      yaw 56
-      pitch (90 + wobble)
-
-      if flash > 0 [ material emissive(#ffffff, strength: 2.3) ]
-      else         [ material matte(#ece5d8) ]
-
-      ; Spine & twin ribcage bars
-      capsule(1.00, 0.12)
-      fd 0.48
-      box(0.60, 0.16, 0.26)
-      fd 0.24
-      box(0.72, 0.18, 0.28)
-
-      ; Outstretched bony arms
-      branch [ yaw 90   pitch -14  capsule(0.64, 0.085) ]
-      branch [ yaw -90  pitch -14  capsule(0.64, 0.085) ]
-
-      ; Cranium + jaw
-      fd 0.46
-      sphere(0.32)
-
-      ; Piercing emerald Underworld eyes
-      material emissive(#2ee68a, strength: 2.5)
-      branch [ fd 0.06  pitch -82  yaw 22   fd 0.28  sphere(0.07) ]
-      branch [ fd 0.06  pitch -82  yaw -22  fd 0.28  sphere(0.07) ]
+    ; Dark ground shadow disc + 2.5D animated Skelly pixel-art sprite
+    at x 0.02 z [
+      material matte(#120c19)
+      cylinder(radius: 0.52, height: 0.04)
+      if recoil > 0 [
+        if flash > 0 [ sprite(skelly_hurt, size: 2.15, tint: #ff9999) ]
+        else         [ sprite(skelly_hurt, size: 2.15) ]
+      ] else [
+        sprite(skelly_idle, size: 2.15)
+      ]
     ]
 
     ; Diegetic 3D floating health bar directly above Skelly's skull
     let ratio = clamp(hp / max_hp, 0.0, 1.0)
-    at x 2.52 z [
+    at x 2.48 z [
       yaw -45
       material matte(#150d1a)
       box(1.38, 0.22, 0.12)
@@ -353,8 +458,8 @@ actor skelly
     if hp <= 0 [ stop ]
     hp -= dmg
     total_hits += 1
-    flash = 0.11
-    recoil = 0.18
+    flash = 0.12
+    recoil = 0.20
     shake = 0.22
 
     let h = find_nearest(hero)
@@ -386,9 +491,10 @@ actor skelly
   end
 end
 
-; --- 7. Zagreus-Inspired Underworld Prince (Playable Hero Actor) ---
+; --- Zagreus — Playable HD-2D Billboard Hero Actor ---
 actor hero
   let face_deg = -124
+  let flip_sprite = 0
   let dash_t = 0
   let dash_cd = 0
   let dash_vx = 0
@@ -397,7 +503,7 @@ actor hero
   let swing_cd = 0
   let combo = 0
   let cast_cd = 0
-  let walk_bob = 0
+  let walk_t = 0
 
   on frame(dt)
     if dash_cd > 0  [ dash_cd -= dt ]
@@ -410,15 +516,15 @@ actor hero
     let mz = 0
     if key("up")    [ mx -= 0.707  mz -= 0.707 ]
     if key("down")  [ mx += 0.707  mz += 0.707 ]
-    if key("right") [ mx += 0.707  mz -= 0.707 ]
-    if key("left")  [ mx -= 0.707  mz += 0.707 ]
+    if key("right") [ mx += 0.707  mz -= 0.707  flip_sprite = 0 ]
+    if key("left")  [ mx -= 0.707  mz += 0.707  flip_sprite = 1 ]
 
     let mlen = sqrt(mx * mx + mz * mz)
     if mlen > 0.01 [
       mx /= mlen
       mz /= mlen
       face_deg = -datan2(mx, mz)
-      walk_bob += dt * 15.0
+      walk_t += dt * 10.0
     ]
 
     ; Hades Dash (Shift)
@@ -439,7 +545,7 @@ actor hero
       dash_t -= dt
       x += dash_vx * dt
       z += dash_vz * dt
-      spawn dash_ghost here [ yaw_deg = face_deg ]
+      spawn dash_ghost here [ flipped = flip_sprite ]
     ] else if mlen > 0.01 [
       x += mx * 5.2 * dt
       z += mz * 5.2 * dt
@@ -459,8 +565,8 @@ actor hero
 
       play("examples/sfx/laser.wav", volume: 0.55, pitch: 0.85 + combo * 0.18)
 
-      x += -dsin(face_deg) * 0.26
-      z += dcos(face_deg) * 0.26
+      x += -dsin(face_deg) * 0.25
+      z += dcos(face_deg) * 0.25
 
       at x 0 z [
         yaw face_deg
@@ -492,67 +598,22 @@ actor hero
     cam_x = lerp(cam_x, x * 0.35, clamp(dt * 4.5, 0, 1))
     cam_z = lerp(cam_z, z * 0.35, clamp(dt * 4.5, 0, 1))
 
-    ; Draw Zagreus silhouette (fiery boots, obsidian armor, crimson cloak, gold pauldron, spiky hair + laurel, blade)
-    let bob = abs(sin(walk_bob)) * 0.08
-    if mlen < 0.01 [ bob = 0 ]
-
-    at x 0.07 z [
-      material emissive(#ff6a1a, strength: 1.9)
-      cylinder(radius: 0.38, height: 0.12)
+    ; Fiery Underworld footstep aura + contact shadow
+    at x 0.03 z [
+      material emissive(#ff6a1a, strength: 1.65)
+      torus(0.36, 0.05)
     ]
 
-    at x (0.68 + bob) z [
-      yaw face_deg
-
-      ; Dark obsidian armor torso
-      material glossy(#1e192b, rough: 0.32)
-      cylinder(radius: 0.32, height: 0.92)
-
-      ; Flowing crimson chiton cloak draped cleanly behind back
-      at x (0.65 + bob) z [
-        yaw face_deg
-        bk 0.22
-        pitch -22
-        material matte(#cf1e36)
-        box(0.68, 0.82, 0.22)
-      ]
-
-      ; Golden shoulder pauldron
-      at x (1.02 + bob) z [
-        yaw (face_deg + 85)
-        fd 0.30
-        material glossy(#f5b83d, rough: 0.22)
-        sphere(0.18)
-      ]
-
-      ; Head, dark spiky hair crest & glowing golden laurel crown
-      at x (1.36 + bob) z [
-        material matte(#f1d2b8)
-        sphere(0.25)
-        at x (1.52 + bob) z [
-          yaw face_deg
-          pitch -25
-          material matte(#15111c)
-          cone(radius: 0.26, height: 0.42)
-        ]
-        at x (1.46 + bob) z [
-          material emissive(#ffaa22, strength: 2.1)
-          torus(0.24, 0.055)
-        ]
-      ]
-
-      ; Stygian Blade in hand
-      let blade_yaw = face_deg - 42
+    ; Draw animated 2.5D Zagreus pixel-art billboard sprite!
+    let bob = 0
+    if mlen > 0.01 [ bob = abs(sin(walk_t)) * 0.10 ]
+    at x (0.04 + bob) z [
       if swing_t > 0 [
-        let sp = 1.0 - (swing_t / 0.18)
-        blade_yaw = face_deg - 75 + sp * 150
-        if combo == 2 [ blade_yaw = face_deg + 75 - sp * 150 ]
-      ]
-      at x (0.88 + bob) z [
-        yaw blade_yaw
-        fd 0.35
-        material emissive(#ff2e51, strength: 2.4)
-        capsule(1.15, 0.085)
+        sprite(zag_slash, size: 2.25, flip_x: flip_sprite)
+      ] else if mlen > 0.01 and (floor(walk_t) % 2) == 0 [
+        sprite(zag_run, size: 2.25, flip_x: flip_sprite)
+      ] else [
+        sprite(zag_idle, size: 2.25, flip_x: flip_sprite)
       ]
     ]
   end
@@ -560,11 +621,11 @@ end
 
 ; === SPAWN COURTYARD ACTORS ===
 spawn hero   [ x = -1.1  y = 0  z = 0.9 ]
-spawn skelly [ x = 1.40  y = 0  z = -0.65 ]
+spawn skelly [ x = 1.45  y = 0  z = -0.65 ]
 spawn urn    [ x = 3.2   y = 0  z = 1.7 ]
 spawn urn    [ x = -2.9  y = 0  z = -2.2 ]
 
-; === COURTYARD ARCHITECTURE, ISOMETRIC CAMERA & PIXEL-ART SHADER ===
+; === GOTHIC DIABLO/HADES COURTYARD: 3D SDF + .OBJ MODELS + PIXEL-ART SHADER ===
 on frame(dt)
   fx shader(hades_pixel_fx)
 
@@ -572,25 +633,24 @@ on frame(dt)
   let sx = sin(time * 95) * shake
   let sz = cos(time * 83) * shake
 
-  ; Isometric diorama camera (low 27 deg FOV from diagonal overhead)
   camera(
-    pos: [cam_x + 13.2 + sx, 11.4, cam_z + 13.2 + sz],
-    look: [cam_x + sx * 0.4, 0.90, cam_z + sz * 0.4],
-    fov: 27
+    pos: [cam_x + 13.6 + sx, 11.8, cam_z + 13.6 + sz],
+    look: [cam_x + sx * 0.4, 1.25, cam_z + sz * 0.4],
+    fov: 28
   )
 
-  ; 1. Glowing Underworld Styx Chasm Rim + Stepped Tartarus Stone Courtyard
-  at 0 -0.62 0 [
-    material emissive(#9e1432, strength: 1.35 + sin(time * 2.5) * 0.15)
+  ; 1. Glowing Styx Blood-Chasm Rim + Cracked Gothic Dungeon Flagstone Floor!
+  at 0 -0.64 0 [
+    material emissive(#a31534, strength: 1.4 + sin(time * 2.5) * 0.15)
     box(13.0, 0.24, 13.0)
   ]
   at 0 -0.35 0 [
-    material matte(#2c243a)
+    material tiles(#352b44, size: 1.55)
     box(11.8, 0.70, 11.8)
   ]
-  ; Crimson sparring ring + golden inlaid border torus
+  ; Crimson sparring pit inlaid with golden border
   at 0 -0.01 0 [
-    material glossy(#6e1e33, rough: 0.42)
+    material tiles(#6e1e33, size: 1.55)
     cylinder(radius: 3.15, height: 0.08)
   ]
   at 0 0.03 0 [
@@ -598,47 +658,37 @@ on frame(dt)
     torus(3.18, 0.08)
   ]
 
-  ; 2. Ornamental Carved North Styx Archway Gate + Stepped Pediment + Crimson Portal
+  ; 2. Weathered Gothic Stone North Styx Archway (SDF carve + stone noise!)
   at 0 1.85 -5.15 [
-    material matte(#3a304d)
+    material stone(#453958, rough: 0.75)
     box(4.6, 3.7, 1.05)
     carve [
       at 0 0.75 -5.15 [ pitch 90  capsule(1.70, 0.92) ]
     ]
   ]
   at 0 3.85 -5.15 [
-    material glossy(#4a3d61, rough: 0.45)
+    material stone(#53456b, rough: 0.65)
     box(5.2, 0.38, 1.30)
   ]
-  at 0 1.30 -5.45 [
-    material emissive(#ff1f44, strength: 2.1 + sin(time * 3.0) * 0.25)
-    box(1.75, 2.45, 0.18)
+  at 0 1.30 -5.48 [
+    material emissive(#7a0e2e, strength: 1.5)
+    box(1.78, 2.50, 0.16)
+  ]
+  at 0 1.25 -5.36 [
+    material emissive(#ff2a4b, strength: 2.3 + sin(time * 3.0) * 0.3)
+    box(0.92, 2.05, 0.14)
   ]
 
-  ; 3. Three Back-Corner Greek Pillars with Golden Capital Trim
-  at -5.1 1.9 -5.1 [
-    material matte(#413754)
-    cylinder(radius: 0.42, height: 3.8)
-    at -5.1 3.75 -5.1 [ material glossy(#d99b38, rough: 0.28)  box(1.02, 0.16, 1.02) ]
-    at -5.1 3.96 -5.1 [ material matte(#4d4163)  box(1.22, 0.28, 1.22) ]
-  ]
-  at 5.1 1.9 -5.1 [
-    material matte(#413754)
-    cylinder(radius: 0.42, height: 3.8)
-    at 5.1 3.75 -5.1 [ material glossy(#d99b38, rough: 0.28)  box(1.02, 0.16, 1.02) ]
-    at 5.1 3.96 -5.1 [ material matte(#4d4163)  box(1.22, 0.28, 1.22) ]
-  ]
-  at -5.1 1.9 5.1 [
-    material matte(#413754)
-    cylinder(radius: 0.42, height: 3.8)
-    at -5.1 3.75 5.1 [ material glossy(#d99b38, rough: 0.28)  box(1.02, 0.16, 1.02) ]
-    at -5.1 3.96 5.1 [ material matte(#4d4163)  box(1.22, 0.28, 1.22) ]
-  ]
+  ; 3. Three Native Raylib .OBJ Gothic Spire Pillars (Depth-Tested with SDFs!)
+  color #6a5b82
+  at -5.1 0.0 -5.1 [ model("examples/models/gothic_pillar.obj", scale: 1.0) ]
+  at  5.1 0.0 -5.1 [ model("examples/models/gothic_pillar.obj", scale: 1.0) ]
+  at -5.1 0.0  5.1 [ model("examples/models/gothic_pillar.obj", scale: 1.0) ]
 
   ; 4. Twin Hades Emerald Braziers (layered tapered flame tongues!)
   let flicker = sin(time * 8.0) * 0.08
   at -2.95 0.48 -4.60 [
-    material glossy(#221c2e, rough: 0.3)
+    material stone(#282136, rough: 0.6)
     cylinder(radius: 0.45, height: 0.96)
     at -2.95 1.10 -4.60 [
       material emissive(#2ee68a, strength: 2.4)
@@ -650,7 +700,7 @@ on frame(dt)
     ]
   ]
   at 2.95 0.48 -4.60 [
-    material glossy(#221c2e, rough: 0.3)
+    material stone(#282136, rough: 0.6)
     cylinder(radius: 0.45, height: 0.96)
     at 2.95 1.10 -4.60 [
       material emissive(#2ee68a, strength: 2.4)
@@ -664,7 +714,7 @@ on frame(dt)
 
   ; 5. West Weapon Pedestal with Golden Eternal Spear + Crimson Aegis Shield
   at -4.85 0.35 0.3 [
-    material matte(#413754)
+    material stone(#453958, rough: 0.7)
     box(1.15, 0.70, 2.0)
     at -4.85 0.75 0.7 [
       pitch 76

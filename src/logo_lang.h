@@ -28,6 +28,8 @@
 
 #define SCENE_MAX_2D_PRIMS  1024
 #define SCENE_MAX_3D_PRIMS  256
+#define SCENE_MAX_SPRITES   128
+#define SCENE_MAX_MODELS    64
 
 /* ----------------------------------------------------------------------------
  *  Rendering Modes, Palettes, Primitives, FX
@@ -71,7 +73,9 @@ typedef enum {
 typedef enum {
     MAT3D_MATTE = 0,
     MAT3D_GLOSSY = 1,
-    MAT3D_EMISSIVE = 2
+    MAT3D_EMISSIVE = 2,
+    MAT3D_STONE = 3,
+    MAT3D_TILES = 4
 } Mat3DType;
 
 typedef enum {
@@ -103,6 +107,27 @@ typedef struct {
     float smooth_k;
     int op_type;    /* Op3DType */
 } Prim3D;
+
+typedef struct {
+    char path[256];
+    const char *inline_art; /* non-NULL for inline """...""" ASCII pixel-art sprites */
+    float x, y, z;
+    float size;
+    float rotation;
+    int cols, rows, frame;
+    bool flip_x;
+    float r, g, b, a;
+} PrimSprite;
+
+typedef struct {
+    char path[256];
+    float px, py, pz;
+    float fx, fy, fz;
+    float ux, uy, uz;
+    float scale;
+    float r, g, b, a;
+    bool wireframe;
+} PrimModel;
 
 typedef struct {
     RenderMode mode;
@@ -153,6 +178,12 @@ typedef struct {
 
     Prim3D prims3d[SCENE_MAX_3D_PRIMS];
     int prim3d_count;
+
+    PrimSprite sprites[SCENE_MAX_SPRITES];
+    int sprite_count;
+
+    PrimModel models[SCENE_MAX_MODELS];
+    int model_count;
 } SceneIR;
 
 /* ----------------------------------------------------------------------------

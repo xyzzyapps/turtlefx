@@ -14,7 +14,7 @@ A lightweight **C11 + raylib 5.5** game renderer scripted in a **modern Logo dia
 - **4 Rendering Styles, Zero GLSL Written by the User**
   1. **Retro Pixel (`mode retro(320, 180)`)** — Integer-snapped pixel turtle, ear-clipped concave polygon fills, indexed palettes (`pico8`, `gameboy`, `cga`, `sunset`), and CRT barrel/scanline shaders.
   2. **Modern 2D (`mode 2d`)** — Resolution-independent 2D Signed Distance Field strokes & shapes, exponential neon glow halos, additive blending, and 2-pass separable Gaussian bloom.
-  3. **3D Raymarching (`mode 3d`)** — Full 3D orthonormal turtle frame (`pitch`, `yaw`, `roll`), 3D SDF primitives (`sphere`, `capsule`, `box`, `cylinder`, `cone`, `torus`), polynomial smooth blending (`smooth`), boolean subtraction (`carve`), soft shadows, ambient occlusion, and emissive materials.
+  3. **3D Raymarching + Native Raylib Meshes & 2.5D Sprites (`mode 3d`)** — Full 3D orthonormal turtle frame (`pitch`, `yaw`, `roll`), 3D SDF primitives (`sphere`, `capsule`, `box`, `cylinder`, `cone`, `torus`), procedural `stone` & `tiles` materials, polynomial smooth blending (`smooth`), boolean subtraction (`carve`), soft shadows, dynamic emissive bounce lights — depth-composited cleanly with native raylib **`.obj` / `.glb` 3D models** (`model(...)`) and **2.5D pixel-art billboard sprites** (`sprite(...)`, supporting `.png` sheets or inline `"""..."""` ASCII art).
   4. **Cross-Mode Post-FX** — Route any 2D or 3D Logo scene through `fx retro(...)`, 4×4 Bayer ordered dithering, distance fog, bloom, CRT curvature, and vignette in two lines of Logo.
 - **Live Hot-Reloading** — Edit and save any `.logo` script while the engine is running to update the scene instantaneously with on-screen syntax/runtime error overlays.
 
@@ -79,7 +79,7 @@ end
 - **Actors & Messaging**: `actor name ... end`, `spawn [N] name [here] [with i] [...]`, `despawn`, `send target msg(...)`, `broadcast name msg(...)`, `find_nearest(name, radius: R)`, `count_actors(name)`, `look_at target`, `distance(target)`
 - **Audio (WAV)**: `play("examples/sfx/laser.wav", volume: 0.6, pitch: 1.0)`
 - **2D / Retro Turtle**: `fd`, `bk`, `rt`, `lt`, `pu`, `pd`, `dot`, `circle`, `rect`, `fill [ ... ]`, `color`, `pen_width`, `glow`, `blend add | alpha`
-- **3D Turtle & SDF**: `pitch`, `yaw`, `roll`, `sphere`, `capsule`, `box`, `cylinder`, `cone`, `torus`, `material matte | glossy | emissive(...)`, `smooth k [ ... ]`, `carve [ ... ]`, `light sun(...)`, `camera(...)`
+- **3D Turtle, SDFs, Sprites & Models**: `pitch`, `yaw`, `roll`, `sphere`, `capsule`, `box`, `cylinder`, `cone`, `torus`, `material matte | glossy | emissive | stone | tiles(...)`, `smooth k [ ... ]`, `carve [ ... ]`, `sprite(path_or_ascii, cols:, rows:, frame:, flip_x:, size:, tint:)`, `model("prop.obj" | "prop.glb", scale:, wireframe:, tint:)`, `light sun(...)`, `camera(...)`
 - **Scoped Transforms**: `branch [ ... ]`, `at x y [ ... ]`, `at x y z [ ... ]`, `offset x y [ ... ]`
 - **State & Control Flow**: `let x = 0`, `let arr = [1, 1, 1]`, `arr[i]`, `"""multiline string"""`, `if ... [ ... ] else [ ... ]`, `repeat N with i [ ... ]`, `while ... [ ... ]`, `to name(...) ... end`, `on frame(dt) ... end`
 

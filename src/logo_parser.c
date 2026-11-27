@@ -770,7 +770,9 @@ static int bare_command_arity(const char *name) {
         str_eq_ci(name, "sphere") || str_eq_ci(name, "mode") ||
         str_eq_ci(name, "sky") || str_eq_ci(name, "material") ||
         str_eq_ci(name, "light") || str_eq_ci(name, "fx") ||
-        str_eq_ci(name, "play") || str_eq_ci(name, "look_at")) return 1;
+        str_eq_ci(name, "play") || str_eq_ci(name, "look_at") ||
+        str_eq_ci(name, "sprite") || str_eq_ci(name, "billboard") ||
+        str_eq_ci(name, "model")) return 1;
 
     if (str_eq_ci(name, "rect") || str_eq_ci(name, "capsule") ||
         str_eq_ci(name, "cylinder") || str_eq_ci(name, "cone") ||

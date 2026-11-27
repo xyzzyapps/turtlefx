@@ -9,6 +9,7 @@
     "lt", "left", "pu", "penup", "pd", "pendown", "home", "pitch", "up",
     "down", "yaw", "roll", "color", "pen_width", "pw", "glow", "blend",
     "dot", "circle", "rect", "sphere", "capsule", "box", "cylinder", "cone", "torus",
+    "sprite", "billboard", "model",
     "actor", "spawn", "here", "despawn", "send", "broadcast", "look_at"
   ]);
 
@@ -16,7 +17,7 @@
     "sin", "cos", "tan", "dsin", "dcos", "rad", "deg", "abs", "sqrt", "pow",
     "floor", "ceil", "fract", "min", "max", "clamp", "lerp", "mix", "rand",
     "hsl", "rgb", "key", "key_pressed", "mouse_x", "mouse_y", "time", "dt",
-    "pi", "width", "height", "true", "false", "on", "off",
+    "pi", "width", "height", "true", "false", "on", "off", "stone", "tiles",
     "find_nearest", "count_actors", "actor_count", "distance",
     "actor_x", "actor_y", "actor_z", "self", "x", "y", "z", "heading"
   ]);

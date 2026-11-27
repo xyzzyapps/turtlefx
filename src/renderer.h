@@ -5,12 +5,30 @@
 #include <raylib.h>
 #include <time.h>
 
+#define RENDERER_MAX_CACHED_TEXTURES 64
+#define RENDERER_MAX_CACHED_MODELS   32
+
+typedef struct {
+    char path[256];
+    uint64_t inline_hash;
+    Texture2D tex;
+    bool loaded;
+} CachedTexture;
+
+typedef struct {
+    char path[256];
+    Model model;
+    bool loaded;
+} CachedModel;
+
 typedef struct {
     Shader sh_2d;
     Shader sh_3d;
     Shader sh_bloom_extract;
     Shader sh_blur;
     Shader sh_post;
+    Shader sh_billboard;
+    Shader sh_model;
 
     /* Optional hot-reloaded user custom fragment shader (file or inline multiline GLSL) */
     Shader sh_custom;
@@ -19,6 +37,12 @@ typedef struct {
     uint64_t custom_code_hash;
     bool custom_is_inline;
     double custom_check_t;
+
+    /* Cached sprites (.png + inline ASCII pixel art) and 3D models (.obj / .glb) */
+    CachedTexture tex_cache[RENDERER_MAX_CACHED_TEXTURES];
+    int tex_cache_count;
+    CachedModel model_cache[RENDERER_MAX_CACHED_MODELS];
+    int model_cache_count;
 
     /* 1x1 white quad texture for triggering fullscreen fragment shaders */
     Texture2D white_tex;

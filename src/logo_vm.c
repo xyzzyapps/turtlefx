@@ -1031,6 +1031,12 @@ static void exec_cmd(LogoVM *vm, Stmt *s) {
             } else if (seq(mn, "glossy")) {
                 vm->turtle.mat_type = MAT3D_GLOSSY;
                 vm->turtle.mat_param = (float)val_as_num(eval_arg_named(vm, ma, mac, "rough", 1, make_num(0.25)));
+            } else if (seq(mn, "stone")) {
+                vm->turtle.mat_type = MAT3D_STONE;
+                vm->turtle.mat_param = (float)val_as_num(eval_arg_named(vm, ma, mac, "rough", 1, make_num(0.5)));
+            } else if (seq(mn, "tiles")) {
+                vm->turtle.mat_type = MAT3D_TILES;
+                vm->turtle.mat_param = (float)val_as_num(eval_arg_named(vm, ma, mac, "size", 1, make_num(1.6)));
             } else {
                 vm->turtle.mat_type = MAT3D_MATTE;
                 vm->turtle.mat_param = 0.0f;
@@ -1066,6 +1072,70 @@ static void exec_cmd(LogoVM *vm, Stmt *s) {
         p.glow = vm->turtle.glow;
         p.blend = vm->turtle.blend;
         emit_prim2d(vm, p);
+        return;
+    }
+
+    /* ---- Sprites (2D / Retro / 3D Billboards — .png sheets or inline """...""" pixel art) ---- */
+    if (seq(cmd, "sprite") || seq(cmd, "billboard")) {
+        if (vm->scene.sprite_count < SCENE_MAX_SPRITES) {
+            LogoVal src = eval_arg_named(vm, a, ac, "path", 0, eval_arg_named(vm, a, ac, "art", 0, make_sym("")));
+            const char *txt = src.long_str ? src.long_str : src.str;
+            if (txt[0]) {
+                PrimSprite sp;
+                memset(&sp, 0, sizeof(sp));
+                bool is_inline = (strchr(txt, '\n') != NULL);
+                if (is_inline) {
+                    sp.inline_art = txt;
+                } else {
+                    snprintf(sp.path, sizeof(sp.path), "%s", txt);
+                }
+                sp.x = vm->turtle.x;
+                sp.y = vm->turtle.y;
+                sp.z = vm->turtle.z;
+                double def_size = (vm->scene.mode == RENDER_MODE_3D) ? 1.8 : 32.0;
+                sp.size     = (float)val_as_num(eval_arg_named(vm, a, ac, "size", 1, make_num(def_size)));
+                sp.cols     = (int)val_as_num(eval_arg_named(vm, a, ac, "cols", 2, make_num(1)));
+                sp.rows     = (int)val_as_num(eval_arg_named(vm, a, ac, "rows", 3, make_num(1)));
+                sp.frame    = (int)val_as_num(eval_arg_named(vm, a, ac, "frame", 4, make_num(0)));
+                sp.flip_x   = val_truthy(eval_arg_named(vm, a, ac, "flip_x", 5, make_num(0)));
+                sp.rotation = vm->turtle.heading;
+                if (sp.cols < 1) sp.cols = 1;
+                if (sp.rows < 1) sp.rows = 1;
+                LogoVal tint = eval_arg_named(vm, a, ac, "tint", 6, make_color(1.0f, 1.0f, 1.0f, 1.0f));
+                if (tint.type == VAL_COLOR) {
+                    sp.r = tint.vec[0]; sp.g = tint.vec[1]; sp.b = tint.vec[2]; sp.a = tint.vec[3];
+                } else {
+                    sp.r = sp.g = sp.b = sp.a = 1.0f;
+                }
+                vm->scene.sprites[vm->scene.sprite_count++] = sp;
+            }
+        }
+        return;
+    }
+
+    /* ---- 3D Models (.obj / .glb / .gltf via raylib LoadModel) ---- */
+    if (seq(cmd, "model")) {
+        if (vm->scene.model_count < SCENE_MAX_MODELS) {
+            LogoVal src = eval_arg_named(vm, a, ac, "path", 0, make_sym(""));
+            if (src.str[0]) {
+                PrimModel md;
+                memset(&md, 0, sizeof(md));
+                snprintf(md.path, sizeof(md.path), "%s", src.str);
+                md.px = vm->turtle.x;  md.py = vm->turtle.y;  md.pz = vm->turtle.z;
+                md.fx = vm->turtle.fx; md.fy = vm->turtle.fy; md.fz = vm->turtle.fz;
+                md.ux = vm->turtle.ux; md.uy = vm->turtle.uy; md.uz = vm->turtle.uz;
+                md.scale = (float)val_as_num(eval_arg_named(vm, a, ac, "scale", 1, make_num(1.0)));
+                md.wireframe = val_truthy(eval_arg_named(vm, a, ac, "wireframe", 2, make_num(0)));
+                LogoVal tint = eval_arg_named(vm, a, ac, "tint", 3, make_sym(""));
+                if (tint.type == VAL_COLOR) {
+                    md.r = tint.vec[0]; md.g = tint.vec[1]; md.b = tint.vec[2]; md.a = tint.vec[3];
+                } else {
+                    md.r = vm->turtle.color[0]; md.g = vm->turtle.color[1];
+                    md.b = vm->turtle.color[2]; md.a = vm->turtle.color[3];
+                }
+                vm->scene.models[vm->scene.model_count++] = md;
+            }
+        }
         return;
     }
 
@@ -1628,6 +1698,8 @@ void logo_vm_run_frame(LogoVM *vm, double time, double dt, LogoHostInput input) 
     if (vm->on_frame || vm->actor_def_count > 0) {
         vm->scene.prim2d_count = 0;
         vm->scene.prim3d_count = 0;
+        vm->scene.sprite_count = 0;
+        vm->scene.model_count = 0;
     }
 
     if (vm->on_frame) {

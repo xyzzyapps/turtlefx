@@ -587,9 +587,13 @@ end</code></pre>
               <tr><td><code>cylinder(radius, height)</code></td><td>A flat-topped cylinder standing along the turtle's up axis.</td></tr>
               <tr><td><code>cone(radius, height)</code></td><td>A pointed cone (use <code>roll 180</code> to flip it upside down for a floating island!).</td></tr>
               <tr><td><code>torus(major, minor)</code></td><td>A 3D donut / halo ring.</td></tr>
-              <tr><td><code>material matte(#col)</code></td><td>Soft clay / stone look with no shiny highlight.</td></tr>
+              <tr><td><code>material matte(#col)</code></td><td>Soft clay / plaster look with no shiny highlight.</td></tr>
               <tr><td><code>material glossy(#col, rough: 0.25)</code></td><td>Shiny plastic / metal highlight (lower <code>rough</code> = shinier).</td></tr>
-              <tr><td><code>material emissive(#col, strength: 2.0)</code></td><td>Self-lit glowing crystal or neon tube (triggers <code>fx bloom</code>!).</td></tr>
+              <tr><td><code>material emissive(#col, strength: 2.0)</code></td><td>Self-lit glowing crystal or torch (triggers <code>fx bloom</code> AND casts real 3D bounce light onto nearby surfaces!).</td></tr>
+              <tr><td><code>material stone(#col, rough: 0.7)</code></td><td>Procedural 3D weathered rock with cracks, grain, and micro-bump — ideal for dungeon walls and arches.</td></tr>
+              <tr><td><code>material tiles(#col, size: 1.5)</code></td><td>Staggered gothic flagstone floor tiles with mortar seams and per-tile variation.</td></tr>
+              <tr><td><code>sprite(src, size: 2.0, ...)</code></td><td>Draws a <code>.png</code> sprite sheet (<code>cols</code>, <code>rows</code>, <code>frame</code>, <code>flip_x</code>, <code>tint</code>) OR inline <code>"""..."""</code> pixel art — works in 2D/Retro AND as a depth-tested <strong>2.5D billboard</strong> in 3D! (Alias: <code>billboard</code>)</td></tr>
+              <tr><td><code>model("prop.obj", scale: 1.0)</code></td><td>Loads &amp; renders native <strong><code>.obj</code>, <code>.glb</code>, or <code>.gltf</code></strong> 3D meshes via raylib, automatically lit &amp; depth-composited with your 3D SDF world (optional <code>wireframe: on</code>, <code>tint: #hex</code>).</td></tr>
               <tr><td><code>smooth k [ ... ]</code></td><td>Melts every shape inside together smoothly like soft clay (bigger <code>k</code> = meltier).</td></tr>
               <tr><td><code>carve [ ... ]</code></td><td>Punches a clean hole out of earlier shapes — great for doorways, windows, and tunnels!</td></tr>
               <tr><td><code>camera(pos: [...], look: [...], fov: 48)</code></td><td>Places your eye in 3D space and aims it at <code>look</code>.</td></tr>
@@ -645,6 +649,58 @@ on frame(dt)
 
   ; Point turtle straight UP and grow the tree
   at 1.1 0.35 -0.2 [ pitch 90  tree(2.0, 0.24, 3) ]
+end</code></pre>
+        </div>
+
+        <h3>HD-2D Mixing: Sprites, Gothic Stone/Tiles &amp; <code>.obj</code> / <code>.glb</code> 3D Models</h3>
+        <p>
+          Because TurtleFX is a scripting layer right on top of <strong>raylib 5.5</strong>, you don't have to build every hero or dungeon pillar out of spheres and boxes!
+          You can combine <strong>procedural 3D SDF architecture</strong> (<code>material tiles</code>, <code>material stone</code>, <code>carve</code>),
+          <strong>native <code>.obj</code> / <code>.glb</code> 3D models</strong> (<code>model(...)</code>), and
+          <strong>2.5D pixel-art billboard sprites</strong> (<code>sprite(...)</code> — either a <code>.png</code> sprite sheet or inline <code>"""..."""</code> pixel art) in the exact same depth-tested 3D scene.
+          Press <strong><code>7</code></strong> inside TurtleFX to play the <em>Hades / Diablo</em>-inspired courtyard demo:
+        </p>
+
+        <figure style="margin: 1.5rem 0;">
+          <img src="assets/hades_courtyard.png" alt="TurtleFX Example 7: Hades-inspired HD-2D courtyard combining procedural stone/tiles SDFs, .obj gothic pillars, and 2.5D pixel-art billboard sprites" style="width:100%; border-radius:6px; border:1px solid #27272f; display:block;" />
+          <figcaption style="margin-top:0.55rem; font-size:0.86rem; color:#9a9aa6;">
+            <code>examples/07_hades_courtyard.logo</code> — Procedural <code>material tiles</code> &amp; <code>material stone</code> SDFs, three native <code>.obj</code> gothic pillars, and multi-frame 2.5D pixel-art billboard Actors.
+          </figcaption>
+        </figure>
+
+        <div class="code-box">
+          <div class="code-title">Mixing 3D SDFs, Native .obj / .glb Models, and 2.5D Sprites <button class="copy-btn">Copy</button></div>
+<pre><code>; 1. Inline ASCII pixel-art sprite ('.' = transparent; K/W/R/O/Y/G/C/B/S/N = colors)
+let hero_art = """
+  ...KKKKKK...
+  ..KKYYYYKK..
+  ..KSSSSSSK..
+  ..KSkSSkSK..
+  .KKRRRRRRKK.
+  .KRRkkkkRRK.
+  ...Kkk.kkK..
+  ...KOO.OOK..
+"""
+
+on frame(dt)
+  ; 2. Cracked dungeon flagstone floor (procedural 3D SDF material)
+  at 0 -0.35 0 [
+    material tiles(#352b44, size: 1.55)
+    box(12, 0.7, 12)
+  ]
+
+  ; 3. Native raylib .obj or .glb 3D mesh prop (auto-lit &amp; depth-tested!)
+  color #6a5b82
+  at -5 0 -5 [ model("examples/models/gothic_pillar.obj", scale: 1.0) ]
+  ; Works with .glb / .gltf too:
+  ; at 5 0 -5 [ model("assets/statue.glb", scale: 1.2) ]
+
+  ; 4. Depth-tested 2.5D billboard sprite (inline art OR external .png sheet!)
+  at 0 0 0 [
+    sprite(hero_art, size: 2.2, flip_x: 0)
+    ; Or animate a 4x2 .png sprite sheet:
+    ; sprite("assets/hero.png", cols: 4, rows: 2, frame: floor(time * 8), size: 2.2)
+  ]
 end</code></pre>
         </div>
       </section>
@@ -1120,7 +1176,7 @@ end</code></pre>
             fetches each shape via <code>texelFetch(uPrims, ivec2(i, row), 0)</code>, and measures its exact mathematical distance <code>d</code>:
             <br>• <strong>2D mode:</strong> <code>d = sdSegment(p, a, b) - halfWidth</code>. Pixels where <code>d &lt; 0</code> are inside the line; <code>smoothstep</code> gives crisp anti-aliasing, and <code>exp(-max(d, 0) / radius)</code> adds the neon halo!
             <br>• <strong>Retro mode:</strong> <code>scene_rt</code> is shrunk to <code>320×180</code> (<code>TEXTURE_FILTER_POINT</code>), pixel centers snap to <code>floor(uv * res) + 0.5</code>, and coverage becomes a crisp 1-bit <code>step(d, 0.0)</code>.
-            <br>• <strong>3D mode:</strong> Every pixel shoots a 3D camera ray and sphere-traces up to 84 steps (<code>t += mapScene(pos).d</code>), blending shapes with <code>min</code>, <code>smin</code> (<code>smooth</code>), or <code>max(d, -dPrim)</code> (<code>carve</code>), then computes surface normals, 28-step soft shadows, AO, and fog.
+            <br>• <strong>3D mode:</strong> Every pixel shoots a 3D camera ray and sphere-traces up to 84 steps (<code>t += mapScene(pos).d</code>), blending shapes with <code>min</code>, <code>smin</code> (<code>smooth</code>), or <code>max(d, -dPrim)</code> (<code>carve</code>), shading <code>stone</code>/<code>tiles</code> noise, dynamic emissive bounce lights, 28-step soft shadows, AO, and fog — AND writes true perspective <code>gl_FragDepth</code> into the framebuffer so raylib's native <code>BeginMode3D()</code> pass can draw cached <code>.obj</code>/<code>.glb</code> models and alpha-cutout 2.5D pixel-art billboards seamlessly occluded behind and in front of SDF walls!
           </li>
           <li>
             <strong>Stage 5 — Pass 2: Optional 2-Pass Bloom:</strong>
@@ -1149,6 +1205,7 @@ end</code></pre>
             <tbody>
               <tr><td>2D / Retro shapes per frame</td><td><strong>1,024</strong> segments, dots, rects, or filled triangles</td></tr>
               <tr><td>3D shapes per frame</td><td><strong>256</strong> spheres, capsules, boxes, cylinders, cones, or toruses</td></tr>
+              <tr><td>Sprites &amp; 3D Models per frame</td><td><strong>128</strong> sprites/billboards (<strong>64</strong> cached textures), <strong>64</strong> <code>.obj</code>/<code>.glb</code> model draws (<strong>32</strong> cached meshes)</td></tr>
               <tr><td>Live Actors &amp; Messages</td><td><strong>256</strong> simultaneous actors, <strong>32</strong> actor types, <strong>12</strong> fields/actor, <strong>256</strong> queued messages/wave</td></tr>
               <tr><td>Items inside a single list</td><td><strong>64</strong> numbers (<code>[0]</code> through <code>[63]</code>)</td></tr>
               <tr><td>Variables / Custom commands</td><td><strong>256</strong> globals, <strong>256</strong> locals, <strong>64</strong> <code>to ... end</code> commands</td></tr>
