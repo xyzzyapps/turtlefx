@@ -1218,8 +1218,10 @@ end</code></pre>
         <div class="note-block">
           <h3>Visual Slow-Motion Turtle Debugger (<code>-debug</code> or <code>F5</code>)</h3>
           <p>
-            Want to watch your turtle draw every line, 3D branch, `.obj` model, and sprite <strong>in slow motion</strong> with a live
-            <strong>simulated clock</strong> (analog dial + digital millisecond readout)? Launch with <code>-debug</code> (or press <code>F5</code> anytime while running):
+            Want to watch your turtle draw every line, 3D branch, <code>.obj</code> model, and sprite <strong>in slow motion</strong> with a live
+            <strong>simulated clock</strong> (analog dial + digital millisecond readout), per-step <strong>Actor owner tags</strong> (<code>[hero#1]</code>, <code>[spark3d#7]</code>),
+            live actor/message counters, and glowing <code>send</code>/<code>broadcast</code> <strong>message arrows</strong>?
+            Launch with <code>-debug</code> (or press <code>F5</code> anytime while running):
           </p>
           <pre><code data-lang="sh">.\build\turtlefx.exe -debug examples\03_3d_crystal_tree.logo
 .\build\turtlefx.exe -debug --speed 0.1 examples\02_neon_2d.logo</code></pre>

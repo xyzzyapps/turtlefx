@@ -270,9 +270,22 @@ static void declare_var(LogoVM *vm, const char *name, LogoVal val, bool force_lo
  *  2D / 3D Primitive Emission + Ear-Clipping Polygon Triangulator
  * ============================================================================ */
 
+static void stamp_current_actor(const LogoVM *vm, int *out_id, char out_name[24]) {
+    if (vm->current_actor >= 0 && vm->current_actor < LOGO_MAX_ACTORS_LIVE) {
+        const ActorInstance *act = &vm->actors[vm->current_actor];
+        *out_id = (int)act->handle;
+        const char *nm = vm->actor_defs[act->def_index]->as.actor_def_stmt.name;
+        snprintf(out_name, 24, "%.23s", nm);
+    } else {
+        *out_id = 0;
+        out_name[0] = '\0';
+    }
+}
+
 static void emit_prim2d(LogoVM *vm, Prim2D p) {
     if (vm->scene.prim2d_count < SCENE_MAX_2D_PRIMS) {
         p.draw_seq = vm->scene.total_draw_ops++;
+        stamp_current_actor(vm, &p.actor_id, p.actor_name);
         vm->scene.prims2d[vm->scene.prim2d_count++] = p;
     }
 }
@@ -280,6 +293,7 @@ static void emit_prim2d(LogoVM *vm, Prim2D p) {
 static void emit_prim3d(LogoVM *vm, Prim3D p) {
     if (vm->scene.prim3d_count < SCENE_MAX_3D_PRIMS) {
         p.draw_seq = vm->scene.total_draw_ops++;
+        stamp_current_actor(vm, &p.actor_id, p.actor_name);
         vm->scene.prims3d[vm->scene.prim3d_count++] = p;
     }
 }
@@ -1110,6 +1124,7 @@ static void exec_cmd(LogoVM *vm, Stmt *s) {
                     sp.r = sp.g = sp.b = sp.a = 1.0f;
                 }
                 sp.draw_seq = vm->scene.total_draw_ops++;
+                stamp_current_actor(vm, &sp.actor_id, sp.actor_name);
                 vm->scene.sprites[vm->scene.sprite_count++] = sp;
             }
         }
@@ -1137,6 +1152,7 @@ static void exec_cmd(LogoVM *vm, Stmt *s) {
                     md.b = vm->turtle.color[2]; md.a = vm->turtle.color[3];
                 }
                 md.draw_seq = vm->scene.total_draw_ops++;
+                stamp_current_actor(vm, &md.actor_id, md.actor_name);
                 vm->scene.models[vm->scene.model_count++] = md;
             }
         }
@@ -1446,7 +1462,37 @@ static void exec_send(LogoVM *vm, Stmt *s) {
     for (int i = 0; i < ac; i++) {
         msg.args[i] = eval_expr(vm, s->as.send_stmt.args[i].value);
     }
+    msg.sender_x = vm->turtle.x;
+    msg.sender_y = vm->turtle.y;
+    msg.sender_z = vm->turtle.z;
+    if (vm->current_actor >= 0 && vm->current_actor < LOGO_MAX_ACTORS_LIVE) {
+        const ActorInstance *sa = &vm->actors[vm->current_actor];
+        msg.sender_handle = sa->handle;
+        snprintf(msg.sender_name, sizeof(msg.sender_name), "%.23s",
+                 vm->actor_defs[sa->def_index]->as.actor_def_stmt.name);
+    } else {
+        msg.sender_handle = 0;
+        snprintf(msg.sender_name, sizeof(msg.sender_name), "world");
+    }
     vm->msg_queue[vm->msg_count++] = msg;
+}
+
+static void record_debug_msg(LogoVM *vm, const ActorMessage *msg, int target_slot) {
+    vm->scene.frame_msg_count++;
+    if (vm->scene.debug_msg_count >= SCENE_MAX_DEBUG_MSGS) return;
+    const ActorInstance *ta = &vm->actors[target_slot];
+    DebugMsgEvent ev;
+    memset(&ev, 0, sizeof(ev));
+    ev.sx = msg->sender_x; ev.sy = msg->sender_y; ev.sz = msg->sender_z;
+    ev.tx = ta->turtle.x;  ev.ty = ta->turtle.y;  ev.tz = ta->turtle.z;
+    ev.sender_id = (int)msg->sender_handle;
+    snprintf(ev.sender_name, sizeof(ev.sender_name), "%.23s", msg->sender_name);
+    ev.target_id = (int)ta->handle;
+    snprintf(ev.target_name, sizeof(ev.target_name), "%.23s",
+             vm->actor_defs[ta->def_index]->as.actor_def_stmt.name);
+    snprintf(ev.msg_name, sizeof(ev.msg_name), "%.23s", msg->msg_name);
+    ev.is_broadcast = msg->is_broadcast;
+    vm->scene.debug_msgs[vm->scene.debug_msg_count++] = ev;
 }
 
 static void deliver_actor_messages(LogoVM *vm) {
@@ -1466,6 +1512,7 @@ static void deliver_actor_messages(LogoVM *vm) {
                 for (int i = 0; i < LOGO_MAX_ACTORS_LIVE; i++) {
                     if (vm->actors[i].alive && !vm->actors[i].pending_despawn &&
                         vm->actors[i].def_index == msg->target_def) {
+                        record_debug_msg(vm, msg, i);
                         run_actor_handler(vm, i, h, msg->args, msg->arg_count);
                     }
                 }
@@ -1474,7 +1521,10 @@ static void deliver_actor_messages(LogoVM *vm) {
                 if (slot < 0) continue;
                 Stmt *def = vm->actor_defs[vm->actors[slot].def_index];
                 Stmt *h = find_actor_handler(def, msg->msg_name);
-                if (h) run_actor_handler(vm, slot, h, msg->args, msg->arg_count);
+                if (h) {
+                    record_debug_msg(vm, msg, slot);
+                    run_actor_handler(vm, slot, h, msg->args, msg->arg_count);
+                }
             }
         }
         free(batch);
@@ -1705,6 +1755,8 @@ void logo_vm_run_frame(LogoVM *vm, double time, double dt, LogoHostInput input) 
         vm->scene.sprite_count = 0;
         vm->scene.model_count = 0;
         vm->scene.total_draw_ops = 0;
+        vm->scene.frame_msg_count = 0;
+        vm->scene.debug_msg_count = 0;
     }
 
     if (vm->on_frame) {
@@ -1741,4 +1793,10 @@ void logo_vm_run_frame(LogoVM *vm, double time, double dt, LogoHostInput input) 
         deliver_actor_messages(vm);
         reap_despawned_actors(vm);
     }
+
+    int alive_cnt = 0;
+    for (int i = 0; i < LOGO_MAX_ACTORS_LIVE; i++) {
+        if (vm->actors[i].alive && !vm->actors[i].pending_despawn) alive_cnt++;
+    }
+    vm->scene.live_actor_count = alive_cnt;
 }

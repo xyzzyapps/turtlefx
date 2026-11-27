@@ -177,6 +177,14 @@ static const char *mode_name(RenderMode m) {
  *  Visual Slow-Motion Turtle Debugger (-debug / --debug / F5)
  * ============================================================================ */
 
+#define DEBUG_MAX_MSG_TRAILS 32
+
+typedef struct {
+    DebugMsgEvent ev;
+    double ttl;       /* Remaining real-time visibility (seconds) */
+    double max_ttl;
+} DebugMsgTrail;
+
 typedef struct {
     bool enabled;
     bool paused;
@@ -187,6 +195,9 @@ typedef struct {
     double last_dt_real;  /* Last real wall-clock dt (seconds) */
     double draw_step_f;   /* Fractional turtle primitive playback cursor */
     double draw_rate;     /* Base turtle draw ops/second at 1.0x draw speed */
+    int total_msgs;       /* Cumulative delivered actor messages */
+    DebugMsgTrail trails[DEBUG_MAX_MSG_TRAILS];
+    int trail_count;
 } DebugState;
 
 typedef struct {
@@ -196,6 +207,8 @@ typedef struct {
     float angle_rad;
     int active_seq;
     int total_ops;
+    int actor_id;
+    char actor_tag[32];   /* "hero#1", "drone#7", or "world" */
     char label[96];
 } DebugCursorInfo;
 
@@ -203,6 +216,48 @@ static void debug_reset_playback(DebugState *dbg) {
     dbg->sim_time = 0.0;
     dbg->sim_frame = 0;
     dbg->draw_step_f = 0.0;
+    dbg->total_msgs = 0;
+    dbg->trail_count = 0;
+}
+
+static void debug_record_frame_msgs(DebugState *dbg, const SceneIR *sc, double dt_real, bool new_vm_step) {
+    /* Decay existing trails when not paused */
+    if (!dbg->paused) {
+        int dst = 0;
+        for (int i = 0; i < dbg->trail_count; i++) {
+            dbg->trails[i].ttl -= dt_real;
+            if (dbg->trails[i].ttl > 0.0) {
+                dbg->trails[dst++] = dbg->trails[i];
+            }
+        }
+        dbg->trail_count = dst;
+    }
+    if (!new_vm_step) return;
+    /* Append newly delivered actor messages from this VM step */
+    if (sc->frame_msg_count > 0) {
+        dbg->total_msgs += sc->frame_msg_count;
+    }
+    for (int i = 0; i < sc->debug_msg_count; i++) {
+        if (dbg->trail_count < DEBUG_MAX_MSG_TRAILS) {
+            dbg->trails[dbg->trail_count].ev = sc->debug_msgs[i];
+            dbg->trails[dbg->trail_count].ttl = 0.90;
+            dbg->trails[dbg->trail_count].max_ttl = 0.90;
+            dbg->trail_count++;
+        } else {
+            memmove(&dbg->trails[0], &dbg->trails[1], (DEBUG_MAX_MSG_TRAILS - 1) * sizeof(DebugMsgTrail));
+            dbg->trails[DEBUG_MAX_MSG_TRAILS - 1].ev = sc->debug_msgs[i];
+            dbg->trails[DEBUG_MAX_MSG_TRAILS - 1].ttl = 0.90;
+            dbg->trails[DEBUG_MAX_MSG_TRAILS - 1].max_ttl = 0.90;
+        }
+    }
+}
+
+static void format_actor_tag(int actor_id, const char *actor_name, char out[32]) {
+    if (actor_id > 0 && actor_name && actor_name[0]) {
+        snprintf(out, 32, "%.18s#%d", actor_name, actor_id);
+    } else {
+        snprintf(out, 32, "world");
+    }
 }
 
 static void build_debug_scene_slice(const SceneIR *full, SceneIR *out, double step_f, DebugCursorInfo *cur) {
@@ -238,6 +293,8 @@ static void build_debug_scene_slice(const SceneIR *full, SceneIR *out, double st
         if (p.draw_seq == active_seq) {
             cur->valid = true;
             cur->is_3d = false;
+            cur->actor_id = p.actor_id;
+            format_actor_tag(p.actor_id, p.actor_name, cur->actor_tag);
             if (p.type == PRIM2D_SEGMENT) {
                 float nx = p.x0 + (p.x1 - p.x0) * frac;
                 float ny = p.y0 + (p.y1 - p.y0) * frac;
@@ -276,6 +333,8 @@ static void build_debug_scene_slice(const SceneIR *full, SceneIR *out, double st
         if (p.draw_seq == active_seq) {
             cur->valid = true;
             cur->is_3d = true;
+            cur->actor_id = p.actor_id;
+            format_actor_tag(p.actor_id, p.actor_name, cur->actor_tag);
             float sc = (p.op_type == OP3D_CARVE) ? 1.0f : (0.25f + 0.75f * frac);
             cur->x = p.px; cur->y = p.py; cur->z = p.pz;
             const char *op_tag = (p.op_type == OP3D_CARVE) ? "CARVE " :
@@ -314,6 +373,8 @@ static void build_debug_scene_slice(const SceneIR *full, SceneIR *out, double st
             md.scale *= (0.25f + 0.75f * frac);
             cur->valid = true;
             cur->is_3d = true;
+            cur->actor_id = md.actor_id;
+            format_actor_tag(md.actor_id, md.actor_name, cur->actor_tag);
             cur->x = md.px; cur->y = md.py; cur->z = md.pz;
             const char *base = strrchr(md.path, '/');
             snprintf(cur->label, sizeof(cur->label), "MODEL %.40s", base ? (base + 1) : md.path);
@@ -328,6 +389,8 @@ static void build_debug_scene_slice(const SceneIR *full, SceneIR *out, double st
             sp.size *= (0.25f + 0.75f * frac);
             cur->valid = true;
             cur->is_3d = (full->mode == RENDER_MODE_3D);
+            cur->actor_id = sp.actor_id;
+            format_actor_tag(sp.actor_id, sp.actor_name, cur->actor_tag);
             cur->x = sp.x; cur->y = sp.y; cur->z = sp.z;
             if (sp.inline_art) snprintf(cur->label, sizeof(cur->label), "SPRITE [inline pixel art]");
             else {
@@ -339,33 +402,78 @@ static void build_debug_scene_slice(const SceneIR *full, SceneIR *out, double st
     }
 }
 
+static bool debug_project_point(const SceneIR *full, float x, float y, float z,
+                                int view_w, int view_h, float *out_sx, float *out_sy) {
+    if (full->mode == RENDER_MODE_3D) {
+        Camera3D cam = {0};
+        cam.position   = (Vector3){full->cam_pos[0], full->cam_pos[1], full->cam_pos[2]};
+        cam.target     = (Vector3){full->cam_look[0], full->cam_look[1], full->cam_look[2]};
+        cam.up         = (Vector3){0.0f, 1.0f, 0.0f};
+        cam.fovy       = full->cam_fov;
+        cam.projection = CAMERA_PERSPECTIVE;
+        Vector2 sp = GetWorldToScreenEx((Vector3){x, y, z}, cam, view_w, view_h);
+        *out_sx = sp.x;
+        *out_sy = sp.y;
+        return (sp.x >= -60 && sp.x <= view_w + 60 && sp.y >= -60 && sp.y <= view_h + 60);
+    } else if (full->mode == RENDER_MODE_RETRO) {
+        *out_sx = (x / (float)(full->retro_w > 0 ? full->retro_w : 320)) * (float)view_w;
+        *out_sy = (y / (float)(full->retro_h > 0 ? full->retro_h : 180)) * (float)view_h;
+        return true;
+    } else {
+        *out_sx = (float)view_w * 0.5f + x;
+        *out_sy = (float)view_h * 0.5f - y;
+        return true;
+    }
+}
+
 static void draw_debug_overlays(const SceneIR *full, const DebugState *dbg,
                                 const DebugCursorInfo *cur, int view_w, int view_h) {
+    /* 0. Actor Message-Passing Beams (send / broadcast arrows!) */
+    for (int i = 0; i < dbg->trail_count; i++) {
+        const DebugMsgTrail *tr = &dbg->trails[i];
+        float a_frac = (tr->max_ttl > 0.0) ? (float)(tr->ttl / tr->max_ttl) : 1.0f;
+        if (a_frac < 0.0f) a_frac = 0.0f;
+        if (a_frac > 1.0f) a_frac = 1.0f;
+        unsigned char alpha = (unsigned char)(a_frac * 235.0f);
+
+        float y_lift = (full->mode == RENDER_MODE_3D) ? 0.95f : 0.0f;
+        float x0, y0, x1, y1;
+        bool ok0 = debug_project_point(full, tr->ev.sx, tr->ev.sy + y_lift, tr->ev.sz, view_w, view_h, &x0, &y0);
+        bool ok1 = debug_project_point(full, tr->ev.tx, tr->ev.ty + y_lift, tr->ev.tz, view_w, view_h, &x1, &y1);
+        if (!ok0 || !ok1) continue;
+
+        Color beam = tr->ev.is_broadcast ? (Color){56, 189, 248, alpha} : (Color){242, 184, 75, alpha};
+        DrawLineEx((Vector2){x0, y0}, (Vector2){x1, y1}, 2.0f, beam);
+        DrawCircle((int)x0, (int)y0, 3.5f, beam);
+        DrawCircleLines((int)x1, (int)y1, 7.0f, beam);
+
+        /* Arrowhead pointing toward receiver */
+        float dx = x1 - x0, dy = y1 - y0;
+        float d = sqrtf(dx * dx + dy * dy);
+        if (d > 14.0f) {
+            float ux = dx / d, uy = dy / d;
+            float ax = x1 - ux * 9.0f, ay = y1 - uy * 9.0f;
+            DrawLineEx((Vector2){x1, y1}, (Vector2){ax - uy * 5.0f, ay + ux * 5.0f}, 2.0f, beam);
+            DrawLineEx((Vector2){x1, y1}, (Vector2){ax + uy * 5.0f, ay - ux * 5.0f}, 2.0f, beam);
+        }
+
+        /* Compact message pill at midpoint */
+        float mx = (x0 + x1) * 0.5f;
+        float my = (y0 + y1) * 0.5f - 10.0f;
+        char mtag[48];
+        snprintf(mtag, sizeof(mtag), "%s()", tr->ev.msg_name);
+        int tw = MeasureText(mtag, 11) + 10;
+        DrawRectangle((int)mx - tw / 2, (int)my - 7, tw, 15, (Color){12, 14, 20, (unsigned char)(a_frac * 215.0f)});
+        DrawRectangleLines((int)mx - tw / 2, (int)my - 7, tw, 15, beam);
+        DrawText(mtag, (int)mx - tw / 2 + 5, (int)my - 5, 11, beam);
+    }
+
     /* 1. Live Turtle Position Marker / Reticle on the Canvas */
     if (cur->valid) {
         float sx = 0.0f, sy = 0.0f;
-        bool on_screen = true;
-        if (cur->is_3d) {
-            Camera3D cam = {0};
-            cam.position   = (Vector3){full->cam_pos[0], full->cam_pos[1], full->cam_pos[2]};
-            cam.target     = (Vector3){full->cam_look[0], full->cam_look[1], full->cam_look[2]};
-            cam.up         = (Vector3){0.0f, 1.0f, 0.0f};
-            cam.fovy       = full->cam_fov;
-            cam.projection = CAMERA_PERSPECTIVE;
-            Vector2 sp = GetWorldToScreenEx((Vector3){cur->x, cur->y, cur->z}, cam, view_w, view_h);
-            sx = sp.x;
-            sy = sp.y;
-            on_screen = (sx >= -40 && sx <= view_w + 40 && sy >= -40 && sy <= view_h + 40);
-        } else if (full->mode == RENDER_MODE_RETRO) {
-            sx = (cur->x / (float)(full->retro_w > 0 ? full->retro_w : 320)) * (float)view_w;
-            sy = (cur->y / (float)(full->retro_h > 0 ? full->retro_h : 180)) * (float)view_h;
-        } else {
-            sx = (float)view_w * 0.5f + cur->x;
-            sy = (float)view_h * 0.5f - cur->y;
-        }
-
+        bool on_screen = debug_project_point(full, cur->x, cur->y, cur->z, view_w, view_h, &sx, &sy);
         if (on_screen) {
-            Color accent = (Color){46, 230, 138, 255};
+            Color accent = (cur->actor_id > 0) ? (Color){56, 189, 248, 255} : (Color){46, 230, 138, 255};
             DrawCircleLines((int)sx, (int)sy, 11.0f, accent);
             DrawCircle((int)sx, (int)sy, 3.5f, (Color){255, 240, 180, 255});
             DrawLine((int)sx - 16, (int)sy, (int)sx - 6, (int)sy, accent);
@@ -373,23 +481,25 @@ static void draw_debug_overlays(const SceneIR *full, const DebugState *dbg,
             DrawLine((int)sx, (int)sy - 16, (int)sx, (int)sy - 6, accent);
             DrawLine((int)sx, (int)sy + 6,  (int)sx, (int)sy + 16, accent);
 
-            char tag[32];
-            snprintf(tag, sizeof(tag), "#%d", cur->active_seq);
-            DrawRectangle((int)sx + 14, (int)sy - 18, 44, 18, (Color){10, 12, 18, 215});
-            DrawRectangleLines((int)sx + 14, (int)sy - 18, 44, 18, accent);
-            DrawText(tag, (int)sx + 19, (int)sy - 15, 12, accent);
+            char tag[64];
+            if (cur->actor_id > 0) snprintf(tag, sizeof(tag), "#%d %s", cur->active_seq, cur->actor_tag);
+            else                   snprintf(tag, sizeof(tag), "#%d", cur->active_seq);
+            int tw = MeasureText(tag, 12) + 12;
+            DrawRectangle((int)sx + 14, (int)sy - 18, tw, 18, (Color){10, 12, 18, 220});
+            DrawRectangleLines((int)sx + 14, (int)sy - 18, tw, 18, accent);
+            DrawText(tag, (int)sx + 20, (int)sy - 15, 12, accent);
         }
     }
 
-    /* 2. Bottom-Right Simulated Clock & Turtle Step Inspector Panel */
-    int pw = 456;
-    int ph = 152;
+    /* 2. Bottom-Right Simulated Clock, Actor Telemetry & Step Inspector Panel */
+    int pw = 480;
+    int ph = 172;
     int px = view_w - pw - 14;
     int py = view_h - ph - 14;
     if (px < 12) px = 12;
     if (py < 74) py = 74;
 
-    DrawRectangle(px, py, pw, ph, (Color){12, 13, 18, 228});
+    DrawRectangle(px, py, pw, ph, (Color){12, 13, 18, 232});
     DrawRectangleLines(px, py, pw, ph, (Color){46, 230, 138, 210});
 
     /* Header row + live state pill */
@@ -407,33 +517,46 @@ static void draw_debug_overlays(const SceneIR *full, const DebugState *dbg,
     double secs = fmod(dbg->sim_time, 60.0);
     char clk_line[96];
     snprintf(clk_line, sizeof(clk_line), "SIM %02d:%06.3fs  |  FRAME #%d", mins, secs, dbg->sim_frame);
-    DrawText(clk_line, px + 14, py + 34, 15, (Color){240, 244, 250, 255});
+    DrawText(clk_line, px + 14, py + 33, 15, (Color){240, 244, 250, 255});
 
     char dt_line[96];
     snprintf(dt_line, sizeof(dt_line), "dt_sim: %.2fms   (wall: %.1fms)   rate: %.1f ops/s",
              dbg->last_dt_sim * 1000.0, dbg->last_dt_real * 1000.0, dbg->draw_rate);
-    DrawText(dt_line, px + 14, py + 55, 12, (Color){155, 170, 195, 255});
+    DrawText(dt_line, px + 14, py + 53, 12, (Color){155, 170, 195, 255});
 
-    /* Turtle step counter + progress bar */
+    /* Actor & Mailbox Telemetry Row */
+    char act_line[96];
+    snprintf(act_line, sizeof(act_line), "ACTORS: %d alive   |   MSGS: %d/frame (%d total)",
+             full->live_actor_count, full->frame_msg_count, dbg->total_msgs);
+    Color act_col = (full->frame_msg_count > 0 || dbg->trail_count > 0)
+        ? (Color){242, 184, 75, 255}
+        : (Color){138, 180, 248, 255};
+    DrawText(act_line, px + 14, py + 72, 12, act_col);
+
+    /* Turtle step counter + actor owner + progress bar */
     int shown = cur->active_seq;
     int total = cur->total_ops;
-    char step_line[96];
-    snprintf(step_line, sizeof(step_line), "STEP %d / %d  |  %.42s", shown, total, cur->label);
-    DrawText(step_line, px + 14, py + 76, 12, (Color){226, 234, 245, 255});
+    char step_line[128];
+    if (cur->actor_tag[0]) {
+        snprintf(step_line, sizeof(step_line), "STEP %d/%d [%s] %.34s", shown, total, cur->actor_tag, cur->label);
+    } else {
+        snprintf(step_line, sizeof(step_line), "STEP %d/%d  |  %.42s", shown, total, cur->label);
+    }
+    DrawText(step_line, px + 14, py + 92, 12, (Color){226, 234, 245, 255});
 
-    int bar_x = px + 14, bar_y = py + 96, bar_w = 326, bar_h = 10;
+    int bar_x = px + 14, bar_y = py + 112, bar_w = 348, bar_h = 10;
     DrawRectangle(bar_x, bar_y, bar_w, bar_h, (Color){26, 30, 40, 255});
     float prog = (total > 0) ? (float)fmin(dbg->draw_step_f / (double)total, 1.0) : 1.0f;
     DrawRectangle(bar_x, bar_y, (int)(bar_w * prog), bar_h, (Color){46, 230, 138, 235});
     DrawRectangleLines(bar_x, bar_y, bar_w, bar_h, (Color){70, 88, 110, 200});
 
     /* Controls legend */
-    DrawText("[Tab] Pause  [,/.] Step Op  [N] +1 Frame", px + 14, py + 114, 11, (Color){145, 160, 185, 255});
-    DrawText("[-/+] Speed  [Bksp] Replay  [F5] Exit Debug", px + 14, py + 130, 11, (Color){145, 160, 185, 255});
+    DrawText("[Tab] Pause  [,/.] Step Op  [N] +1 Frame", px + 14, py + 131, 11, (Color){145, 160, 185, 255});
+    DrawText("[-/+] Speed  [Bksp] Replay  [F5] Exit Debug", px + 14, py + 147, 11, (Color){145, 160, 185, 255});
 
     /* Analog Simulated Clock Dial (Right Side of Panel) */
     float cx = (float)(px + pw - 56);
-    float cy = (float)(py + 62);
+    float cy = (float)(py + 72);
     float r  = 40.0f;
     DrawCircle((int)cx, (int)cy, r, (Color){18, 20, 28, 255});
     DrawCircleLines((int)cx, (int)cy, r, (Color){95, 115, 140, 220});
@@ -662,6 +785,38 @@ static int run_render_test(void) {
                 ExportImage(dimg, dbg_outs[d]);
                 UnloadImage(dimg);
                 printf("[RENDERED] %s (-debug) -> %s\n", dbg_scripts[d], dbg_outs[d]);
+                session_free(&ds);
+            }
+        }
+        /* Also capture Actor-aware debug overlay on 07_hades_courtyard.logo mid-slash! */
+        {
+            ScriptSession ds = {0};
+            if (session_load(&ds, BUILTIN_EXAMPLES[6], input)) {
+                LogoHostInput sim = input;
+                sim.is_key_down = test_space_down;
+                DebugState dst = {
+                    .enabled = true, .paused = false,
+                    .sim_time = 0.0, .sim_scale = 0.15, .sim_frame = 0,
+                    .last_dt_sim = 0.0025, .last_dt_real = 0.0167,
+                    .draw_step_f = 36.55, .draw_rate = 6.0
+                };
+                for (int f = 0; f < 22; f++) {
+                    dst.sim_time += 0.016;
+                    dst.sim_frame++;
+                    logo_vm_run_frame(ds.vm, dst.sim_time, 0.016, sim);
+                    debug_record_frame_msgs(&dst, &ds.vm->scene, 0.016, true);
+                }
+                DebugCursorInfo cur = {0};
+                build_debug_scene_slice(&ds.vm->scene, dbg_slice, dst.draw_step_f, &cur);
+                renderer_draw_to(&renderer, dbg_slice, 960, 540, dst.sim_time, &out_rt);
+                BeginTextureMode(out_rt);
+                    draw_debug_overlays(&ds.vm->scene, &dst, &cur, 960, 540);
+                EndTextureMode();
+                Image dimg = LoadImageFromTexture(out_rt.texture);
+                ImageFlipVertical(&dimg);
+                ExportImage(dimg, "build/preview_debug_actors.png");
+                UnloadImage(dimg);
+                printf("[RENDERED] %s (-debug actors) -> build/preview_debug_actors.png\n", BUILTIN_EXAMPLES[6]);
                 session_free(&ds);
             }
         }
@@ -984,6 +1139,7 @@ int main(int argc, char **argv) {
         const SceneIR *scene_to_draw = NULL;
         if (!has_err) {
             if (dbg.enabled && debug_scene) {
+                debug_record_frame_msgs(&dbg, &sess.vm->scene, dt_real, should_step_vm);
                 if (dbg.draw_step_f > (double)sess.vm->scene.total_draw_ops) {
                     dbg.draw_step_f = (double)sess.vm->scene.total_draw_ops;
                 }

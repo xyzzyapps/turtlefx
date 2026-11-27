@@ -30,6 +30,7 @@
 #define SCENE_MAX_3D_PRIMS  256
 #define SCENE_MAX_SPRITES   128
 #define SCENE_MAX_MODELS    64
+#define SCENE_MAX_DEBUG_MSGS 32
 
 /* ----------------------------------------------------------------------------
  *  Rendering Modes, Palettes, Primitives, FX
@@ -94,6 +95,8 @@ typedef struct {
     float glow;
     int blend;      /* BlendModeKind */
     int draw_seq;   /* Monotonic turtle draw order within frame (for -debug) */
+    int actor_id;   /* 0 = world/top-level, >0 = ActorInstance.handle */
+    char actor_name[24];
 } Prim2D;
 
 typedef struct {
@@ -108,6 +111,8 @@ typedef struct {
     float smooth_k;
     int op_type;    /* Op3DType */
     int draw_seq;   /* Monotonic turtle draw order within frame (for -debug) */
+    int actor_id;
+    char actor_name[24];
 } Prim3D;
 
 typedef struct {
@@ -120,6 +125,8 @@ typedef struct {
     bool flip_x;
     float r, g, b, a;
     int draw_seq;   /* Monotonic turtle draw order within frame (for -debug) */
+    int actor_id;
+    char actor_name[24];
 } PrimSprite;
 
 typedef struct {
@@ -131,7 +138,20 @@ typedef struct {
     float r, g, b, a;
     bool wireframe;
     int draw_seq;   /* Monotonic turtle draw order within frame (for -debug) */
+    int actor_id;
+    char actor_name[24];
 } PrimModel;
+
+typedef struct {
+    float sx, sy, sz;
+    float tx, ty, tz;
+    char sender_name[24];
+    int sender_id;
+    char target_name[24];
+    int target_id;
+    char msg_name[24];
+    bool is_broadcast;
+} DebugMsgEvent;
 
 typedef struct {
     RenderMode mode;
@@ -190,6 +210,12 @@ typedef struct {
     int model_count;
 
     int total_draw_ops; /* Total ordered draw commands emitted this frame */
+
+    /* Actor debug telemetry (populated every frame for -debug inspector) */
+    int live_actor_count;
+    int frame_msg_count;
+    DebugMsgEvent debug_msgs[SCENE_MAX_DEBUG_MSGS];
+    int debug_msg_count;
 } SceneIR;
 
 /* ----------------------------------------------------------------------------
@@ -455,6 +481,10 @@ typedef struct {
     char msg_name[LOGO_MAX_IDENT];
     LogoVal args[LOGO_MAX_MSG_ARGS];
     int arg_count;
+    /* Sender info for -debug message visualization */
+    float sender_x, sender_y, sender_z;
+    uint32_t sender_handle;
+    char sender_name[24];
 } ActorMessage;
 
 typedef struct {
