@@ -381,7 +381,9 @@ void renderer_draw_to(LogoRenderer *r, const SceneIR *s, int screen_w, int scree
 
         float aspect = (float)target_w / (float)(target_h > 0 ? target_h : 1);
         Matrix matView = MatrixLookAt(cam.position, cam.target, cam.up);
-        Matrix matProj = MatrixPerspective(cam.fovy * DEG2RAD, aspect, 0.01f, 1000.0f);
+        Matrix matProj = MatrixPerspective(cam.fovy * DEG2RAD, aspect,
+                                           (float)rlGetCullDistanceNear(),
+                                           (float)rlGetCullDistanceFar());
         Matrix matVP   = MatrixMultiply(matView, matProj);
 
         SetShaderValue(r->sh_3d, GetShaderLocation(r->sh_3d, "uPrimCount"), &s->prim3d_count, SHADER_UNIFORM_INT);
@@ -447,6 +449,7 @@ void renderer_draw_to(LogoRenderer *r, const SceneIR *s, int screen_w, int scree
                     }
 
                     if (s->sprite_count > 0) {
+                        rlDisableBackfaceCulling();
                         BeginShaderMode(r->sh_billboard);
                         for (int i = 0; i < s->sprite_count; i++) {
                             const PrimSprite *sp = &s->sprites[i];
@@ -458,10 +461,11 @@ void renderer_draw_to(LogoRenderer *r, const SceneIR *s, int screen_w, int scree
                             int fidx = ((sp->frame % total) + total) % total;
                             int col = fidx % sp->cols;
                             int row = fidx / sp->cols;
-                            Rectangle src = {
-                                col * fw, row * fh,
-                                sp->flip_x ? -fw : fw, fh
-                            };
+                            /* DrawBillboardPro maps U from src.x to src.x+src.width directly (no auto-flip),
+                               so start at (col+1)*fw with width -fw to keep U strictly inside [0, 1] with CLAMP! */
+                            Rectangle src = sp->flip_x
+                                ? (Rectangle){ (col + 1) * fw, row * fh, -fw, fh }
+                                : (Rectangle){ col * fw,       row * fh,  fw, fh };
                             float aspect_sp = (fh > 0.0f) ? (fw / fh) : 1.0f;
                             Vector2 bsize = {sp->size * aspect_sp, sp->size};
                             /* Anchor bottom-center of billboard on (x, y, z) so feet stand on floor! */
@@ -475,7 +479,9 @@ void renderer_draw_to(LogoRenderer *r, const SceneIR *s, int screen_w, int scree
                             };
                             DrawBillboardPro(cam, tex, src, pos, (Vector3){0, 1, 0}, bsize, origin, 0.0f, tint);
                         }
+                        rlDrawRenderBatchActive();
                         EndShaderMode();
+                        rlEnableBackfaceCulling();
                     }
                 EndMode3D();
             }

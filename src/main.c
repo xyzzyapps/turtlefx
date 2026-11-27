@@ -177,6 +177,10 @@ static bool test_space_down(const char *name) {
     return name && strcmp(name, "space") == 0;
 }
 
+static bool test_left_down(const char *name) {
+    return name && strcmp(name, "left") == 0;
+}
+
 /* Headless verification mode: --verify [optional script path] */
 static int run_verify_mode(int argc, char **argv) {
     LogoHostInput dummy = {0};
@@ -326,6 +330,23 @@ static int run_render_test(void) {
         ExportImage(img, out_path);
         UnloadImage(img);
         printf("[RENDERED] %s -> %s\n", BUILTIN_EXAMPLES[i], out_path);
+
+        /* Also verify walking LEFT (flip_x=1 + zag_run) renders cleanly without vanishing! */
+        if (strstr(BUILTIN_EXAMPLES[i], "07_hades_courtyard.logo") != NULL) {
+            LogoHostInput simL = input;
+            simL.is_key_down = test_left_down;
+            double t = 0.40;
+            for (int f = 0; f < 16; f++) {
+                t += 0.016;
+                logo_vm_run_frame(sess.vm, t, 0.016, simL);
+            }
+            renderer_draw_to(&renderer, &sess.vm->scene, 960, 540, t, &out_rt);
+            Image imgL = LoadImageFromTexture(out_rt.texture);
+            ImageFlipVertical(&imgL);
+            ExportImage(imgL, "build/preview_7_left.png");
+            UnloadImage(imgL);
+            printf("[RENDERED] %s (walk left) -> build/preview_7_left.png\n", BUILTIN_EXAMPLES[i]);
+        }
         session_free(&sess);
     }
 
