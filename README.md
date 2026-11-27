@@ -43,7 +43,7 @@ Run a specific `.logo` script or headless test suite:
 
 | Key | Action |
 |---|---|
-| `1` – `5` | Switch live between built-in examples (`Retro Arcade`, `Neon 2D`, `3D Crystal Tree`, `Retro 3D`, `Custom GLSL Shader`) |
+| `1` – `6` | Switch live between built-in examples (`Retro Arcade`, `Neon 2D`, `3D Crystal Tree`, `Retro 3D`, `Custom GLSL Shader`, `Actor Swarm`) |
 | `Left` / `Right` (`A` / `D`) | Steer ship in `01_retro_arcade.logo` |
 | `Space` | Fire lasers & destroy enemy ships in `01_retro_arcade.logo` |
 | `R` | Reload active `.logo` script manually (also auto hot-reloads on file save) |
@@ -76,11 +76,12 @@ end
 ```
 
 - **Modes & Shaders**: `mode retro(w, h) | 2d | 3d`, `palette pico8 | gameboy | cga | sunset`, `fx crt(...)`, `fx bloom(...)`, `fx retro(...)`, `fx fog(...)`, `fx vignette(...)`, `fx shader("my.fs", amount: ..., speed: ...)`
+- **Actors & Messaging**: `actor name ... end`, `spawn [N] name [here] [with i] [...]`, `despawn`, `send target msg(...)`, `broadcast name msg(...)`, `find_nearest(name, radius: R)`, `count_actors(name)`, `look_at target`, `distance(target)`
 - **Audio (WAV)**: `play("examples/sfx/laser.wav", volume: 0.6, pitch: 1.0)`
 - **2D / Retro Turtle**: `fd`, `bk`, `rt`, `lt`, `pu`, `pd`, `dot`, `circle`, `rect`, `fill [ ... ]`, `color`, `pen_width`, `glow`, `blend add | alpha`
 - **3D Turtle & SDF**: `pitch`, `yaw`, `roll`, `sphere`, `capsule`, `box`, `cylinder`, `cone`, `torus`, `material matte | glossy | emissive(...)`, `smooth k [ ... ]`, `carve [ ... ]`, `light sun(...)`, `camera(...)`
 - **Scoped Transforms**: `branch [ ... ]`, `at x y [ ... ]`, `at x y z [ ... ]`, `offset x y [ ... ]`
-- **State & Control Flow**: `let x = 0`, `let arr = [1, 1, 1]`, `arr[i]`, `if ... [ ... ] else [ ... ]`, `repeat N with i [ ... ]`, `while ... [ ... ]`, `to name(...) ... end`, `on frame(dt) ... end`
+- **State & Control Flow**: `let x = 0`, `let arr = [1, 1, 1]`, `arr[i]`, `"""multiline string"""`, `if ... [ ... ] else [ ... ]`, `repeat N with i [ ... ]`, `while ... [ ... ]`, `to name(...) ... end`, `on frame(dt) ... end`
 
 ---
 

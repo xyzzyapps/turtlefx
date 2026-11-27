@@ -14,9 +14,10 @@ static const char *BUILTIN_EXAMPLES[] = {
     "examples/02_neon_2d.logo",
     "examples/03_3d_crystal_tree.logo",
     "examples/04_retro_3d.logo",
-    "examples/05_custom_shader.logo"
+    "examples/05_custom_shader.logo",
+    "examples/06_actor_swarm.logo"
 };
-static const int NUM_EXAMPLES = 5;
+static const int NUM_EXAMPLES = 6;
 
 /* Simple cached WAV sound bank (lazy-loaded on first play("file.wav")) */
 #define MAX_CACHED_SOUNDS 32
@@ -117,17 +118,23 @@ typedef struct {
     char path[512];
     time_t mtime;
     LogoProgram *prog;
-    LogoVM vm;
+    LogoVM *vm;
     double elapsed;
     char load_err[LOGO_MAX_ERR];
 } ScriptSession;
+
+static void session_free(ScriptSession *sess) {
+    if (sess->prog) { logo_program_free(sess->prog); sess->prog = NULL; }
+    if (sess->vm)   { free(sess->vm); sess->vm = NULL; }
+}
 
 static bool session_load(ScriptSession *sess, const char *path, LogoHostInput input) {
     if (sess->prog) {
         logo_program_free(sess->prog);
         sess->prog = NULL;
     }
-    memset(&sess->vm, 0, sizeof(sess->vm));
+    if (!sess->vm) sess->vm = (LogoVM *)calloc(1, sizeof(LogoVM));
+    else memset(sess->vm, 0, sizeof(LogoVM));
     sess->load_err[0] = '\0';
     strncpy(sess->path, path, sizeof(sess->path) - 1);
     sess->mtime = file_mtime(path);
@@ -147,10 +154,10 @@ static bool session_load(ScriptSession *sess, const char *path, LogoHostInput in
         return false;
     }
 
-    logo_vm_init(&sess->vm, sess->prog);
-    logo_vm_run_init(&sess->vm, input);
-    if (sess->vm.has_error) {
-        snprintf(sess->load_err, sizeof(sess->load_err), "%s", sess->vm.error);
+    logo_vm_init(sess->vm, sess->prog);
+    logo_vm_run_init(sess->vm, input);
+    if (sess->vm->has_error) {
+        snprintf(sess->load_err, sizeof(sess->load_err), "%s", sess->vm->error);
         return false;
     }
     return true;
@@ -189,14 +196,14 @@ static int run_verify_mode(int argc, char **argv) {
                 LogoHostInput sim = dummy;
                 sim.is_key_down = test_space_down;
                 double t = 0.0;
-                for (int f = 0; f < 90 && !sess.vm.has_error; f++) {
+                for (int f = 0; f < 90 && !sess.vm->has_error; f++) {
                     t += 0.016;
-                    logo_vm_run_frame(&sess.vm, t, 0.016, sim);
+                    logo_vm_run_frame(sess.vm, t, 0.016, sim);
                 }
                 double kills = 0.0;
-                for (int g = 0; g < sess.vm.global_count; g++) {
-                    if (strcmp(sess.vm.globals[g].name, "kills") == 0) {
-                        kills = sess.vm.globals[g].val.num;
+                for (int g = 0; g < sess.vm->global_count; g++) {
+                    if (strcmp(sess.vm->globals[g].name, "kills") == 0) {
+                        kills = sess.vm->globals[g].val.num;
                     }
                 }
                 printf("       -> Simulated Spacebar combat check: kills=%.0f\n", kills);
@@ -204,22 +211,37 @@ static int run_verify_mode(int argc, char **argv) {
                     snprintf(sess.load_err, sizeof(sess.load_err), "Expected >= 1 enemy kill during combat simulation");
                     ok = false;
                 }
+            } else if (strstr(path, "06_actor_swarm.logo") != NULL) {
+                double t = 0.0;
+                for (int f = 0; f < 140 && !sess.vm->has_error; f++) {
+                    t += 0.016;
+                    logo_vm_run_frame(sess.vm, t, 0.016, dummy);
+                }
+                double kills = 0.0;
+                for (int g = 0; g < sess.vm->global_count; g++) {
+                    if (strcmp(sess.vm->globals[g].name, "kills") == 0) kills = sess.vm->globals[g].val.num;
+                }
+                printf("       -> Actor Model swarm check: kills=%.0f\n", kills);
+                if (kills < 1.0) {
+                    snprintf(sess.load_err, sizeof(sess.load_err), "Expected >= 1 drone kill via Actor message passing");
+                    ok = false;
+                }
             } else {
-                logo_vm_run_frame(&sess.vm, 1.0, 0.016, dummy);
+                logo_vm_run_frame(sess.vm, 1.0, 0.016, dummy);
             }
-            if (sess.vm.has_error) ok = false;
+            if (sess.vm->has_error) ok = false;
         }
         if (ok) {
-            const SceneIR *s = &sess.vm.scene;
+            const SceneIR *s = &sess.vm->scene;
             printf("[PASS] %-34s | mode=%-5s | 2D=%3d | 3D=%3d | bloom=%d crt=%d retro=%d pal=%d\n",
                    path, mode_name(s->mode), s->prim2d_count, s->prim3d_count,
                    s->bloom_enabled, s->crt_enabled, s->retro_fx_enabled, (int)s->palette);
         } else {
-            const char *err = sess.load_err[0] ? sess.load_err : sess.vm.error;
+            const char *err = sess.load_err[0] ? sess.load_err : (sess.vm ? sess.vm->error : "Load failed");
             printf("[FAIL] %-34s | %s\n", path, err);
             failures++;
         }
-        if (sess.prog) logo_program_free(sess.prog);
+        session_free(&sess);
     }
     return failures == 0 ? 0 : 1;
 }
@@ -255,10 +277,19 @@ static int run_render_test(void) {
             failures++;
             continue;
         }
-        logo_vm_run_frame(&sess.vm, 1.5, 0.016, input);
+        if (strstr(BUILTIN_EXAMPLES[i], "06_actor_swarm.logo") != NULL) {
+            /* Step 95 frames so lasers, drones, explosions & shockwaves are all mid-action! */
+            double t = 0.0;
+            for (int f = 0; f < 95; f++) {
+                t += 0.016;
+                logo_vm_run_frame(sess.vm, t, 0.016, input);
+            }
+        } else {
+            logo_vm_run_frame(sess.vm, 1.5, 0.016, input);
+        }
 
         /* Render scene + post-FX (+ optional custom shader) into deterministic offscreen RT */
-        renderer_draw_to(&renderer, &sess.vm.scene, 960, 540, 1.5, &out_rt);
+        renderer_draw_to(&renderer, &sess.vm->scene, 960, 540, 1.5, &out_rt);
 
         Image img = LoadImageFromTexture(out_rt.texture);
         ImageFlipVertical(&img);
@@ -267,7 +298,7 @@ static int run_render_test(void) {
         ExportImage(img, out_path);
         UnloadImage(img);
         printf("[RENDERED] %s -> %s\n", BUILTIN_EXAMPLES[i], out_path);
-        if (sess.prog) logo_program_free(sess.prog);
+        session_free(&sess);
     }
 
     UnloadRenderTexture(out_rt);
@@ -321,13 +352,13 @@ static int run_make_media(void) {
             for (int f = 0; f < 46; f++) {
                 t += 1.0 / 60.0;
                 g_demo_time = t;
-                logo_vm_run_frame(&sess.vm, t, 1.0 / 60.0, in);
+                logo_vm_run_frame(sess.vm, t, 1.0 / 60.0, in);
             }
         } else {
-            logo_vm_run_frame(&sess.vm, 1.8, 1.0 / 60.0, in);
+            logo_vm_run_frame(sess.vm, 1.8, 1.0 / 60.0, in);
         }
 
-        renderer_draw_to(&renderer, &sess.vm.scene, 640, 360, 1.8, &quad_rt);
+        renderer_draw_to(&renderer, &sess.vm->scene, 640, 360, 1.8, &quad_rt);
         BeginTextureMode(quad_rt);
             DrawRectangle(10, 10, 336, 26, (Color){8, 10, 18, 215});
             DrawRectangleLines(10, 10, 336, 26, (Color){80, 105, 150, 200});
@@ -340,7 +371,7 @@ static int run_make_media(void) {
         int oy = (i / 2) * 360;
         ImageDraw(&collage, qimg, (Rectangle){0, 0, 640, 360}, (Rectangle){(float)ox, (float)oy, 640, 360}, WHITE);
         UnloadImage(qimg);
-        if (sess.prog) logo_program_free(sess.prog);
+        session_free(&sess);
     }
     ExportImage(collage, "assets/screenshot.png");
     UnloadImage(collage);
@@ -366,12 +397,12 @@ static int run_make_media(void) {
             for (int sub = 0; sub < 2; sub++) {
                 t += 1.0 / 60.0;
                 g_demo_time = t;
-                logo_vm_run_frame(&sess.vm, t, 1.0 / 60.0, in);
+                logo_vm_run_frame(sess.vm, t, 1.0 / 60.0, in);
             }
 
-            renderer_draw_to(&renderer, &sess.vm.scene, 1280, 720, t, &vid_rt);
+            renderer_draw_to(&renderer, &sess.vm->scene, 1280, 720, t, &vid_rt);
             BeginTextureMode(vid_rt);
-                const SceneIR *sc = &sess.vm.scene;
+                const SceneIR *sc = &sess.vm->scene;
                 int prims = (sc->mode == RENDER_MODE_3D) ? sc->prim3d_count : sc->prim2d_count;
                 DrawRectangle(16, 16, 560, 36, (Color){8, 10, 18, 205});
                 DrawRectangleLines(16, 16, 560, 36, (Color){75, 95, 140, 190});
@@ -388,7 +419,7 @@ static int run_make_media(void) {
             ExportImage(vimg, fpath);
             UnloadImage(vimg);
         }
-        if (sess.prog) logo_program_free(sess.prog);
+        session_free(&sess);
     }
 
     UnloadRenderTexture(vid_rt);
@@ -448,12 +479,13 @@ int main(int argc, char **argv) {
         input.mouse_x = (float)GetMouseX();
         input.mouse_y = (float)GetMouseY();
 
-        /* Built-in example switching (1-5), manual reload (R), HUD toggle (H), Screenshot (F12/P) */
+        /* Built-in example switching (1-6), manual reload (R), HUD toggle (H), Screenshot (F12/P) */
         if (IsKeyPressed(KEY_ONE))   session_load(&sess, BUILTIN_EXAMPLES[0], input);
         if (IsKeyPressed(KEY_TWO))   session_load(&sess, BUILTIN_EXAMPLES[1], input);
         if (IsKeyPressed(KEY_THREE)) session_load(&sess, BUILTIN_EXAMPLES[2], input);
         if (IsKeyPressed(KEY_FOUR))  session_load(&sess, BUILTIN_EXAMPLES[3], input);
         if (IsKeyPressed(KEY_FIVE))  session_load(&sess, BUILTIN_EXAMPLES[4], input);
+        if (IsKeyPressed(KEY_SIX))   session_load(&sess, BUILTIN_EXAMPLES[5], input);
         if (IsKeyPressed(KEY_R))     session_load(&sess, sess.path, input);
         if (IsKeyPressed(KEY_H))     show_hud = !show_hud;
         bool want_screenshot = IsKeyPressed(KEY_F12) || IsKeyPressed(KEY_P);
@@ -469,11 +501,11 @@ int main(int argc, char **argv) {
         }
 
         sess.elapsed += dt;
-        bool has_err = (sess.load_err[0] != '\0') || sess.vm.has_error;
+        bool has_err = (sess.load_err[0] != '\0') || !sess.vm || sess.vm->has_error;
         if (!has_err) {
-            logo_vm_run_frame(&sess.vm, sess.elapsed, dt, input);
-            if (sess.vm.has_error) {
-                snprintf(sess.load_err, sizeof(sess.load_err), "%s", sess.vm.error);
+            logo_vm_run_frame(sess.vm, sess.elapsed, dt, input);
+            if (sess.vm->has_error) {
+                snprintf(sess.load_err, sizeof(sess.load_err), "%s", sess.vm->error);
                 has_err = true;
             }
         }
@@ -482,26 +514,26 @@ int main(int argc, char **argv) {
             ClearBackground((Color){12, 14, 22, 255});
 
             if (!has_err) {
-                renderer_draw(&renderer, &sess.vm.scene, input.view_w, input.view_h, sess.elapsed);
+                renderer_draw(&renderer, &sess.vm->scene, input.view_w, input.view_h, sess.elapsed);
             } else {
                 DrawRectangle(40, 80, input.view_w - 80, 120, (Color){60, 16, 24, 230});
                 DrawRectangleLines(40, 80, input.view_w - 80, 120, (Color){240, 80, 96, 255});
                 DrawText("LOGO SCRIPT ERROR", 60, 98, 22, (Color){255, 130, 140, 255});
                 DrawText(sess.load_err, 60, 132, 18, WHITE);
-                DrawText("Fix the script and save to hot-reload (or press 1-5).", 60, 164, 15, LIGHTGRAY);
+                DrawText("Fix the script and save to hot-reload (or press 1-6).", 60, 164, 15, LIGHTGRAY);
             }
 
-            if (show_hud) {
-                const SceneIR *sc = &sess.vm.scene;
+            if (show_hud && sess.vm) {
+                const SceneIR *sc = &sess.vm->scene;
                 int prims = (sc->mode == RENDER_MODE_3D) ? sc->prim3d_count : sc->prim2d_count;
-                DrawRectangle(12, 12, 830, 56, (Color){8, 10, 18, 195});
-                DrawRectangleLines(12, 12, 830, 56, (Color){70, 90, 130, 180});
+                DrawRectangle(12, 12, 920, 56, (Color){8, 10, 18, 195});
+                DrawRectangleLines(12, 12, 920, 56, (Color){70, 90, 130, 180});
 
                 char line1[256];
                 snprintf(line1, sizeof(line1), "TurtleFX  |  %.120s  |  Mode: %s  |  Prims: %d  |  %d FPS",
                          sess.path, mode_name(sc->mode), prims, GetFPS());
                 DrawText(line1, 24, 20, 16, (Color){230, 240, 255, 255});
-                DrawText("[1] Retro  [2] Neon 2D  [3] 3D Crystal  [4] Retro 3D  [5] Custom Shader  [R] Reload  [H] HUD  [F12] Shot",
+                DrawText("[1] Retro  [2] Neon 2D  [3] 3D Crystal  [4] Retro 3D  [5] Shader  [6] Actors  [R] Reload  [H] HUD  [F12] Shot",
                          24, 44, 13, (Color){155, 175, 210, 255});
             }
 
@@ -521,7 +553,7 @@ int main(int argc, char **argv) {
         }
     }
 
-    if (sess.prog) logo_program_free(sess.prog);
+    session_free(&sess);
     host_unload_sounds();
     renderer_shutdown(&renderer);
     CloseAudioDevice();

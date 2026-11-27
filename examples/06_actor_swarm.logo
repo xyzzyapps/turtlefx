@@ -1,0 +1,227 @@
+; Example 6: Actor Model Demo — Neon Swarm & Message-Passing Space Battle
+; Controls: Left/Right (or A/D) to aim manually, Space to rapid-fire!
+; (Auto-tracks & fires automatically when idle so you can watch the Actor Model live!)
+
+mode 2d
+fx bloom(strength: 0.55, radius: 11)
+fx vignette(0.32)
+
+let kills = 0
+let wave = 1
+let raged = 0
+
+; --- 1. Explosion Spark Actor ---
+actor spark
+  let life = 0.42
+  let speed = 150
+
+  on frame(dt)
+    color hsl(25 + life * 90, 100%, 60%)
+    blend add
+    glow 0.7
+    pen_width 2.2
+    fd speed * dt
+    speed *= 0.94
+    life -= dt
+    if life <= 0 [ despawn ]
+  end
+end
+
+; --- 2. Expanding Shockwave Ring Actor ---
+actor shockwave
+  let rad = 6
+  let life = 0.35
+
+  on spawn
+    pu
+  end
+
+  on frame(dt)
+    rad += 140 * dt
+    life -= dt
+    if life <= 0 [ despawn ]
+
+    branch [
+      color #38bdf8
+      blend add
+      glow 0.6
+      pen_width 2.0 * (life / 0.35)
+      pu  fd rad  rt 90 + (180 / 12)  pd
+      let edge = 2 * rad * sin(pi / 12)
+      repeat 12 [ fd edge  rt 30 ]
+    ]
+  end
+end
+
+; --- 3. Alien Drone Actor (Hunts defender & reacts to hit/rage messages!) ---
+actor drone
+  let hp = 2
+  let speed = 55
+  let flash = 0
+  let orbit_dir = 1
+
+  on spawn
+    pu
+  end
+
+  on frame(dt)
+    if flash > 0 [ flash -= dt ]
+
+    let def = find_nearest(defender)
+    if def [
+      look_at def
+      let d = distance(def)
+      ; Orbit cleanly once close to defender
+      if d < 135 [ rt 72 * orbit_dir ]
+    ]
+    fd speed * dt
+
+    ; Draw glowing drone diamond
+    branch [
+      if flash > 0 [
+        color #ffffff
+      ] else [
+        if speed > 80 [ color #f2b84b ] else [ color #f472b6 ]
+      ]
+      blend add
+      glow 0.65
+      pen_width 2.2
+      pu  fd 11  rt 135  pd
+      repeat 4 [ fd 15.5  rt 90 ]
+    ]
+    color #ffec27
+    dot 2.5
+  end
+
+  ; Message handler: laser sends `send target hit(1)`
+  on hit(dmg)
+    hp -= dmg
+    flash = 0.08
+    if hp <= 0 [
+      kills += 1
+      spawn 10 spark here [
+        rt rand() * 360
+        speed = 110 + rand() * 140
+      ]
+      spawn shockwave here
+      play("examples/sfx/boom.wav", volume: 0.7, pitch: 0.85 + rand() * 0.3)
+      despawn
+    ]
+  end
+
+  ; Broadcast handler: last 2 drones enter rage mode!
+  on rage()
+    speed = 98
+  end
+end
+
+; --- 4. Laser Bolt Actor (Senses nearby drones & sends `hit` messages) ---
+actor laser
+  let life = 1.4
+
+  on frame(dt)
+    color #2ee68a
+    blend add
+    glow 0.8
+    pen_width 2.6
+    fd 440 * dt
+    life -= dt
+
+    let target = find_nearest(drone, radius: 18)
+    if target [
+      send target hit(1)
+      despawn
+    ]
+    if life <= 0 or abs(x) > 680 or abs(y) > 400 [ despawn ]
+  end
+end
+
+; --- 5. Center Defender Turret Actor ---
+actor defender
+  let cd = 0
+
+  on spawn
+    pu
+  end
+
+  on frame(dt)
+    if cd > 0 [ cd -= dt ]
+
+    let manual = 0
+    if key("left")  [ lt 190 * dt  manual = 1 ]
+    if key("right") [ rt 190 * dt  manual = 1 ]
+
+    ; Auto-aim at nearest drone when player is not steering
+    let prey = find_nearest(drone)
+    if manual == 0 and prey [
+      look_at prey
+    ]
+
+    if (key("space") or manual == 0) and cd <= 0 and prey [
+      spawn laser here
+      play("examples/sfx/laser.wav", volume: 0.45, pitch: 0.95 + rand() * 0.15)
+      if key("space") [ cd = 0.12 ] else [ cd = 0.24 ]
+    ]
+
+    ; Draw defender ship
+    branch [
+      color #ecece7
+      glow 0.45
+      pu  fd 18  pd
+      fill [
+        rt 150  fd 32
+        rt 115  fd 10
+        lt 55   fd 6
+        rt 110  fd 6
+        lt 55   fd 10
+        rt 115  fd 32
+      ]
+    ]
+    color #2ee68a
+    glow 0.8
+    dot 4
+  end
+end
+
+; === INITIAL SPAWN ===
+spawn defender [ x = 0  y = 0 ]
+
+spawn 10 drone with i [
+  let a = i * 36
+  x = dsin(a) * 260
+  y = dcos(a) * 190
+  if (i % 2) == 0 [ orbit_dir = 1 ] else [ orbit_dir = -1 ]
+]
+
+; === GLOBAL FRAME LOOP ===
+on frame(dt)
+  clear #090b12
+
+  ; Subtle ambient starfield
+  repeat 36 with i [
+    let sx = ((i * 197 + 50) % 900) - 450
+    let sy = ((i * 131 + 30) % 520) - 260
+    color #27324d
+    at sx sy [ dot 1.3 ]
+  ]
+
+  ; Broadcast rage() to remaining drones when only 2 are left!
+  let left = count_actors(drone)
+  if left == 2 and raged == 0 [
+    raged = 1
+    broadcast drone rage()
+  ]
+
+  ; Spawn next wave once all drones are cleared
+  if left == 0 [
+    wave += 1
+    raged = 0
+    spawn (8 + min(wave * 2, 10)) drone with i [
+      let a = i * (360 / (8 + min(wave * 2, 10))) + time * 30
+      x = dsin(a) * 280
+      y = dcos(a) * 200
+      hp = 1 + (wave % 2)
+      if (i % 2) == 0 [ orbit_dir = 1 ] else [ orbit_dir = -1 ]
+    ]
+  ]
+end

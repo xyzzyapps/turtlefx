@@ -20,6 +20,12 @@
 #define LOGO_MAX_TURTLE_STK 64
 #define LOGO_MAX_FILL_PTS   128
 
+#define LOGO_MAX_ACTOR_DEFS   32
+#define LOGO_MAX_ACTOR_FIELDS 12
+#define LOGO_MAX_ACTORS_LIVE  256
+#define LOGO_MAX_MSG_ARGS     6
+#define LOGO_MAX_MESSAGES     256
+
 #define SCENE_MAX_2D_PRIMS  1024
 #define SCENE_MAX_3D_PRIMS  256
 
@@ -252,6 +258,11 @@ typedef enum {
     STMT_WHILE,
     STMT_PROC,
     STMT_ON_FRAME,
+    STMT_ACTOR_DEF,
+    STMT_ON_MSG,
+    STMT_SPAWN,
+    STMT_DESPAWN,
+    STMT_SEND,
     STMT_STOP,
     STMT_CMD,
     STMT_BLOCK_CMD /* branch [...], at x y [...], fill [...], smooth k [...], carve [...] */
@@ -300,6 +311,31 @@ struct Stmt {
             char dt_param[LOGO_MAX_IDENT];
             StmtList body;
         } on_frame_stmt;
+        struct {
+            char name[LOGO_MAX_IDENT];
+            StmtList fields;
+            StmtList handlers;
+        } actor_def_stmt;
+        struct {
+            char msg_name[LOGO_MAX_IDENT];
+            char params[LOGO_MAX_PARAMS][LOGO_MAX_IDENT];
+            int param_count;
+            StmtList body;
+        } on_msg_stmt;
+        struct {
+            Expr *count; /* NULL means 1 */
+            char actor_name[LOGO_MAX_IDENT];
+            bool at_here;
+            char iter_var[LOGO_MAX_IDENT];
+            StmtList init_body;
+        } spawn_stmt;
+        struct {
+            bool is_broadcast;
+            Expr *target; /* handle expr for send, actor type sym for broadcast */
+            char msg_name[LOGO_MAX_IDENT];
+            CallArg *args;
+            int arg_count;
+        } send_stmt;
         struct {
             char name[LOGO_MAX_IDENT];
             CallArg *args;
@@ -366,10 +402,38 @@ typedef struct {
 } TurtleState;
 
 typedef struct {
+    bool alive;
+    bool pending_despawn;
+    uint32_t handle;
+    int def_index;
+    TurtleState turtle;
+    LogoVar fields[LOGO_MAX_ACTOR_FIELDS];
+    int field_count;
+} ActorInstance;
+
+typedef struct {
+    bool is_broadcast;
+    uint32_t target_handle;
+    int target_def;
+    char msg_name[LOGO_MAX_IDENT];
+    LogoVal args[LOGO_MAX_MSG_ARGS];
+    int arg_count;
+} ActorMessage;
+
+typedef struct {
     LogoProgram *prog;
     Stmt *procs[LOGO_MAX_PROCS];
     int proc_count;
     Stmt *on_frame;
+
+    /* Actor definitions, live pool, and message mailbox */
+    Stmt *actor_defs[LOGO_MAX_ACTOR_DEFS];
+    int actor_def_count;
+    ActorInstance actors[LOGO_MAX_ACTORS_LIVE];
+    uint32_t next_actor_handle;
+    int current_actor; /* -1 when running global code */
+    ActorMessage msg_queue[LOGO_MAX_MESSAGES];
+    int msg_count;
 
     /* Global variables (persist across frames!) */
     LogoVar globals[LOGO_MAX_VARS];

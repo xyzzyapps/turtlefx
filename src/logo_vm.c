@@ -186,13 +186,44 @@ static PaletteKind parse_palette_sym(const char *name) {
 }
 
 /* ============================================================================
- *  Variables
+ *  Variables & Actor Helpers
  * ============================================================================ */
+
+static int find_actor_def(LogoVM *vm, const char *name) {
+    for (int i = 0; i < vm->actor_def_count; i++) {
+        if (seq(vm->actor_defs[i]->as.actor_def_stmt.name, name)) return i;
+    }
+    return -1;
+}
+
+static int find_actor_by_handle(LogoVM *vm, uint32_t handle) {
+    if (handle == 0) return -1;
+    for (int i = 0; i < LOGO_MAX_ACTORS_LIVE; i++) {
+        if (vm->actors[i].alive && !vm->actors[i].pending_despawn && vm->actors[i].handle == handle) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+static Stmt *find_actor_handler(Stmt *def, const char *msg_name) {
+    for (int i = 0; i < def->as.actor_def_stmt.handlers.count; i++) {
+        Stmt *h = def->as.actor_def_stmt.handlers.items[i];
+        if (h->kind == STMT_ON_MSG && seq(h->as.on_msg_stmt.msg_name, msg_name)) return h;
+    }
+    return NULL;
+}
 
 static LogoVar *find_var(LogoVM *vm, const char *name) {
     int base = (vm->call_depth > 0) ? vm->frame_base[vm->call_depth - 1] : 0;
     for (int i = vm->local_count - 1; i >= base; i--) {
         if (seq(vm->locals[i].name, name)) return &vm->locals[i];
+    }
+    if (vm->current_actor >= 0) {
+        ActorInstance *a = &vm->actors[vm->current_actor];
+        for (int i = 0; i < a->field_count; i++) {
+            if (seq(a->fields[i].name, name)) return &a->fields[i];
+        }
     }
     for (int i = vm->global_count - 1; i >= 0; i--) {
         if (seq(vm->globals[i].name, name)) return &vm->globals[i];
@@ -428,6 +459,14 @@ static LogoVal eval_expr(LogoVM *vm, Expr *e) {
             if (seq(id, "true") || seq(id, "on"))   return make_num(1.0);
             if (seq(id, "false") || seq(id, "off")) return make_num(0.0);
 
+            if (vm->current_actor >= 0) {
+                if (seq(id, "x"))       return make_num((double)vm->turtle.x);
+                if (seq(id, "y"))       return make_num((double)vm->turtle.y);
+                if (seq(id, "z"))       return make_num((double)vm->turtle.z);
+                if (seq(id, "heading")) return make_num((double)vm->turtle.heading);
+                if (seq(id, "self"))    return make_num((double)vm->actors[vm->current_actor].handle);
+            }
+
             LogoVar *var = find_var(vm, id);
             if (var) return var->val;
 
@@ -555,6 +594,62 @@ static LogoVal eval_expr(LogoVM *vm, Expr *e) {
             if (seq(fn, "rand")) {
                 vm->rng_state = vm->rng_state * 1664525u + 1013904223u;
                 return make_num((double)(vm->rng_state >> 8) / (double)(1u << 24));
+            }
+            if (seq(fn, "find_nearest")) {
+                LogoVal sym = eval_arg_named(vm, args, ac, "actor", 0, make_sym(""));
+                double max_r = val_as_num(eval_arg_named(vm, args, ac, "radius", 1, make_num(1e9)));
+                int def_idx = find_actor_def(vm, sym.str);
+                if (def_idx < 0) return make_num(0);
+                double best_d2 = max_r * max_r;
+                uint32_t best_h = 0;
+                bool is3d = (vm->scene.mode == RENDER_MODE_3D);
+                for (int i = 0; i < LOGO_MAX_ACTORS_LIVE; i++) {
+                    if (i == vm->current_actor) continue;
+                    ActorInstance *a = &vm->actors[i];
+                    if (!a->alive || a->pending_despawn || a->def_index != def_idx) continue;
+                    double dx = (double)a->turtle.x - (double)vm->turtle.x;
+                    double dy = (double)a->turtle.y - (double)vm->turtle.y;
+                    double dz = is3d ? ((double)a->turtle.z - (double)vm->turtle.z) : 0.0;
+                    double d2 = dx * dx + dy * dy + dz * dz;
+                    if (d2 <= best_d2) {
+                        best_d2 = d2;
+                        best_h = a->handle;
+                    }
+                }
+                return make_num((double)best_h);
+            }
+            if (seq(fn, "count_actors") || seq(fn, "actor_count")) {
+                int def_idx = -2;
+                if (ac >= 1) {
+                    LogoVal sym = eval_arg_named(vm, args, ac, "actor", 0, make_sym(""));
+                    def_idx = find_actor_def(vm, sym.str);
+                    if (def_idx < 0) return make_num(0);
+                }
+                int cnt = 0;
+                for (int i = 0; i < LOGO_MAX_ACTORS_LIVE; i++) {
+                    ActorInstance *a = &vm->actors[i];
+                    if (!a->alive || a->pending_despawn) continue;
+                    if (def_idx == -2 || a->def_index == def_idx) cnt++;
+                }
+                return make_num((double)cnt);
+            }
+            if (seq(fn, "distance")) {
+                uint32_t h = (uint32_t)val_as_num(eval_arg_named(vm, args, ac, "target", 0, make_num(0)));
+                int idx = find_actor_by_handle(vm, h);
+                if (idx < 0) return make_num(1e9);
+                ActorInstance *a = &vm->actors[idx];
+                double dx = (double)a->turtle.x - (double)vm->turtle.x;
+                double dy = (double)a->turtle.y - (double)vm->turtle.y;
+                double dz = (vm->scene.mode == RENDER_MODE_3D) ? ((double)a->turtle.z - (double)vm->turtle.z) : 0.0;
+                return make_num(sqrt(dx * dx + dy * dy + dz * dz));
+            }
+            if (seq(fn, "actor_x") || seq(fn, "actor_y") || seq(fn, "actor_z")) {
+                uint32_t h = (uint32_t)val_as_num(eval_arg_named(vm, args, ac, "target", 0, make_num(0)));
+                int idx = find_actor_by_handle(vm, h);
+                if (idx < 0) return make_num(0);
+                if (seq(fn, "actor_x")) return make_num((double)vm->actors[idx].turtle.x);
+                if (seq(fn, "actor_y")) return make_num((double)vm->actors[idx].turtle.y);
+                return make_num((double)vm->actors[idx].turtle.z);
             }
             return make_num(0);
         }
@@ -864,6 +959,29 @@ static void exec_cmd(LogoVM *vm, Stmt *s) {
         vm->turtle.rx = 1; vm->turtle.ry = 0; vm->turtle.rz = 0;
         return;
     }
+    if (seq(cmd, "look_at")) {
+        uint32_t h = (uint32_t)val_as_num(eval_arg_named(vm, a, ac, "target", 0, make_num(0)));
+        int idx = find_actor_by_handle(vm, h);
+        if (idx < 0) return;
+        float dx = vm->actors[idx].turtle.x - vm->turtle.x;
+        float dy = vm->actors[idx].turtle.y - vm->turtle.y;
+        float dz = vm->actors[idx].turtle.z - vm->turtle.z;
+        if (vm->scene.mode == RENDER_MODE_3D) {
+            if (dx * dx + dy * dy + dz * dz > 1e-6f) {
+                vm->turtle.fx = dx; vm->turtle.fy = dy; vm->turtle.fz = dz;
+                vm->turtle.ux = 0.0f; vm->turtle.uy = 1.0f; vm->turtle.uz = 0.0f;
+                if (fabsf(dy) > 0.99f * sqrtf(dx * dx + dy * dy + dz * dz)) {
+                    vm->turtle.uy = 0.0f; vm->turtle.uz = 1.0f;
+                }
+                turtle_reortho(&vm->turtle);
+            }
+        } else if (vm->scene.mode == RENDER_MODE_RETRO) {
+            vm->turtle.heading = atan2f(dx, -dy) * (float)(180.0 / M_PI);
+        } else {
+            vm->turtle.heading = atan2f(dx, dy) * (float)(180.0 / M_PI);
+        }
+        return;
+    }
 
     /* ---- Style & Material ---- */
     if (seq(cmd, "color")) {
@@ -1097,13 +1215,213 @@ static void exec_block_cmd(LogoVM *vm, Stmt *s) {
     }
 }
 
+/* ============================================================================
+ *  Actor Lifecycle, Spawning & Mailbox Execution
+ * ============================================================================ */
+
+static void run_actor_handler(LogoVM *vm, int slot, Stmt *handler, LogoVal *args, int arg_count) {
+    if (!handler || slot < 0 || slot >= LOGO_MAX_ACTORS_LIVE) return;
+    ActorInstance *act = &vm->actors[slot];
+    if (!act->alive || act->pending_despawn) return;
+    if (vm->call_depth >= LOGO_MAX_STACK - 1) return;
+
+    int prev_actor = vm->current_actor;
+    TurtleState prev_turtle = vm->turtle;
+    int prev_turtle_sp = vm->turtle_sp;
+    bool prev_stopping = vm->stopping;
+
+    vm->current_actor = slot;
+    vm->turtle = act->turtle;
+    vm->stopping = false;
+
+    int saved_locals = vm->local_count;
+    vm->frame_base[vm->call_depth++] = saved_locals;
+    int pc = handler->as.on_msg_stmt.param_count;
+    for (int i = 0; i < pc; i++) {
+        LogoVal v = (i < arg_count) ? args[i] : make_num(0);
+        declare_var(vm, handler->as.on_msg_stmt.params[i], v, true);
+    }
+
+    exec_list(vm, &handler->as.on_msg_stmt.body);
+
+    act->turtle = vm->turtle;
+    vm->call_depth--;
+    vm->local_count = saved_locals;
+    vm->turtle_sp = prev_turtle_sp;
+    vm->turtle = prev_turtle;
+    vm->current_actor = prev_actor;
+    vm->stopping = prev_stopping;
+}
+
+static void exec_spawn(LogoVM *vm, Stmt *s) {
+    int def_idx = find_actor_def(vm, s->as.spawn_stmt.actor_name);
+    if (def_idx < 0) {
+        vm_error(vm, s->line, "Unknown actor type '%s'", s->as.spawn_stmt.actor_name);
+        return;
+    }
+    Stmt *def = vm->actor_defs[def_idx];
+    int count = s->as.spawn_stmt.count ? (int)val_as_num(eval_expr(vm, s->as.spawn_stmt.count)) : 1;
+    if (count < 0) count = 0;
+    if (count > LOGO_MAX_ACTORS_LIVE) count = LOGO_MAX_ACTORS_LIVE;
+
+    /* Snapshot spawner's turtle state in case `here` is used */
+    TurtleState spawner_turtle = vm->turtle;
+    bool has_iter = s->as.spawn_stmt.iter_var[0] != '\0';
+
+    for (int n = 0; n < count && !vm->has_error; n++) {
+        int slot = -1;
+        for (int i = 0; i < LOGO_MAX_ACTORS_LIVE; i++) {
+            if (!vm->actors[i].alive) { slot = i; break; }
+        }
+        if (slot < 0) break; /* pool full */
+
+        ActorInstance *act = &vm->actors[slot];
+        memset(act, 0, sizeof(*act));
+        act->alive = true;
+        act->handle = ++vm->next_actor_handle;
+        act->def_index = def_idx;
+        turtle_reset(&act->turtle);
+        if (s->as.spawn_stmt.at_here) {
+            act->turtle.x = spawner_turtle.x;
+            act->turtle.y = spawner_turtle.y;
+            act->turtle.z = spawner_turtle.z;
+            act->turtle.heading = spawner_turtle.heading;
+            act->turtle.fx = spawner_turtle.fx; act->turtle.fy = spawner_turtle.fy; act->turtle.fz = spawner_turtle.fz;
+            act->turtle.ux = spawner_turtle.ux; act->turtle.uy = spawner_turtle.uy; act->turtle.uz = spawner_turtle.uz;
+            act->turtle.rx = spawner_turtle.rx; act->turtle.ry = spawner_turtle.ry; act->turtle.rz = spawner_turtle.rz;
+        }
+
+        /* Initialize default actor fields */
+        int prev_actor = vm->current_actor;
+        TurtleState prev_turtle = vm->turtle;
+        bool prev_stopping = vm->stopping;
+
+        vm->current_actor = slot;
+        vm->turtle = act->turtle;
+        vm->stopping = false;
+
+        for (int f = 0; f < def->as.actor_def_stmt.fields.count; f++) {
+            Stmt *fs = def->as.actor_def_stmt.fields.items[f];
+            if (fs->kind == STMT_LET && act->field_count < LOGO_MAX_ACTOR_FIELDS) {
+                LogoVal v = eval_expr(vm, fs->as.let_stmt.init);
+                strcpy(act->fields[act->field_count].name, fs->as.let_stmt.name);
+                act->fields[act->field_count].val = v;
+                act->field_count++;
+            }
+        }
+
+        /* Run optional spawn [ ... ] init block */
+        if (s->as.spawn_stmt.init_body.count > 0) {
+            int saved_locals = vm->local_count;
+            if (has_iter) declare_var(vm, s->as.spawn_stmt.iter_var, make_num((double)n), true);
+            exec_list(vm, &s->as.spawn_stmt.init_body);
+            vm->local_count = saved_locals;
+        }
+
+        act->turtle = vm->turtle;
+        vm->turtle = prev_turtle;
+        vm->current_actor = prev_actor;
+        vm->stopping = prev_stopping;
+
+        /* Run optional `on spawn` handler on the new actor */
+        Stmt *on_sp = find_actor_handler(def, "spawn");
+        if (on_sp && !act->pending_despawn) {
+            run_actor_handler(vm, slot, on_sp, NULL, 0);
+        }
+    }
+}
+
+static void exec_send(LogoVM *vm, Stmt *s) {
+    if (vm->msg_count >= LOGO_MAX_MESSAGES) return;
+    ActorMessage msg;
+    memset(&msg, 0, sizeof(msg));
+    msg.is_broadcast = s->as.send_stmt.is_broadcast;
+    strcpy(msg.msg_name, s->as.send_stmt.msg_name);
+
+    LogoVal tgt = eval_expr(vm, s->as.send_stmt.target);
+    if (msg.is_broadcast) {
+        msg.target_def = find_actor_def(vm, tgt.str);
+        if (msg.target_def < 0) return;
+    } else {
+        msg.target_handle = (uint32_t)val_as_num(tgt);
+        if (msg.target_handle == 0) return;
+    }
+
+    int ac = s->as.send_stmt.arg_count;
+    if (ac > LOGO_MAX_MSG_ARGS) ac = LOGO_MAX_MSG_ARGS;
+    msg.arg_count = ac;
+    for (int i = 0; i < ac; i++) {
+        msg.args[i] = eval_expr(vm, s->as.send_stmt.args[i].value);
+    }
+    vm->msg_queue[vm->msg_count++] = msg;
+}
+
+static void deliver_actor_messages(LogoVM *vm) {
+    for (int wave = 0; wave < 4 && vm->msg_count > 0 && !vm->has_error; wave++) {
+        int count = vm->msg_count;
+        ActorMessage *batch = (ActorMessage *)malloc((size_t)count * sizeof(ActorMessage));
+        if (!batch) return;
+        memcpy(batch, vm->msg_queue, (size_t)count * sizeof(ActorMessage));
+        vm->msg_count = 0;
+
+        for (int m = 0; m < count && !vm->has_error; m++) {
+            ActorMessage *msg = &batch[m];
+            if (msg->is_broadcast) {
+                Stmt *def = vm->actor_defs[msg->target_def];
+                Stmt *h = find_actor_handler(def, msg->msg_name);
+                if (!h) continue;
+                for (int i = 0; i < LOGO_MAX_ACTORS_LIVE; i++) {
+                    if (vm->actors[i].alive && !vm->actors[i].pending_despawn &&
+                        vm->actors[i].def_index == msg->target_def) {
+                        run_actor_handler(vm, i, h, msg->args, msg->arg_count);
+                    }
+                }
+            } else {
+                int slot = find_actor_by_handle(vm, msg->target_handle);
+                if (slot < 0) continue;
+                Stmt *def = vm->actor_defs[vm->actors[slot].def_index];
+                Stmt *h = find_actor_handler(def, msg->msg_name);
+                if (h) run_actor_handler(vm, slot, h, msg->args, msg->arg_count);
+            }
+        }
+        free(batch);
+    }
+}
+
+static void reap_despawned_actors(LogoVM *vm) {
+    for (int i = 0; i < LOGO_MAX_ACTORS_LIVE; i++) {
+        if (vm->actors[i].alive && vm->actors[i].pending_despawn) {
+            vm->actors[i].alive = false;
+            vm->actors[i].pending_despawn = false;
+            vm->actors[i].handle = 0;
+        }
+    }
+}
+
 static void exec_stmt(LogoVM *vm, Stmt *s) {
     if (!s || vm->has_error || vm->stopping) return;
 
     switch (s->kind) {
         case STMT_PROC:
         case STMT_ON_FRAME:
+        case STMT_ACTOR_DEF:
+        case STMT_ON_MSG:
             /* Already registered during init */
+            break;
+
+        case STMT_SPAWN:
+            exec_spawn(vm, s);
+            break;
+
+        case STMT_DESPAWN:
+            if (vm->current_actor >= 0) {
+                vm->actors[vm->current_actor].pending_despawn = true;
+                vm->stopping = true;
+            }
+            break;
+
+        case STMT_SEND:
+            exec_send(vm, s);
             break;
 
         case STMT_LET: {
@@ -1114,6 +1432,27 @@ static void exec_stmt(LogoVM *vm, Stmt *s) {
 
         case STMT_ASSIGN: {
             LogoVal rhs = eval_expr(vm, s->as.assign_stmt.value);
+            if (vm->current_actor >= 0) {
+                float *tfield = NULL;
+                if (seq(s->as.assign_stmt.name, "x"))            tfield = &vm->turtle.x;
+                else if (seq(s->as.assign_stmt.name, "y"))       tfield = &vm->turtle.y;
+                else if (seq(s->as.assign_stmt.name, "z"))       tfield = &vm->turtle.z;
+                else if (seq(s->as.assign_stmt.name, "heading")) tfield = &vm->turtle.heading;
+                if (tfield) {
+                    double cur = (double)(*tfield);
+                    double b = val_as_num(rhs);
+                    switch (s->as.assign_stmt.compound_op) {
+                        case OP_EQ:  cur = b; break;
+                        case OP_ADD: cur += b; break;
+                        case OP_SUB: cur -= b; break;
+                        case OP_MUL: cur *= b; break;
+                        case OP_DIV: cur = (fabs(b) > 1e-9) ? cur / b : 0.0; break;
+                        default: break;
+                    }
+                    *tfield = (float)cur;
+                    break;
+                }
+            }
             LogoVar *var = find_var(vm, s->as.assign_stmt.name);
             if (!var) {
                 declare_var(vm, s->as.assign_stmt.name, rhs, false);
@@ -1219,6 +1558,7 @@ void logo_vm_init(LogoVM *vm, LogoProgram *prog) {
     memset(vm, 0, sizeof(*vm));
     vm->prog = prog;
     vm->rng_state = 0x12345678u;
+    vm->current_actor = -1;
     logo_scene_defaults(&vm->base_scene);
     vm->scene = vm->base_scene;
     turtle_reset(&vm->turtle);
@@ -1228,6 +1568,8 @@ void logo_vm_init(LogoVM *vm, LogoProgram *prog) {
         Stmt *s = prog->top_level.items[i];
         if (s->kind == STMT_PROC && vm->proc_count < LOGO_MAX_PROCS) {
             vm->procs[vm->proc_count++] = s;
+        } else if (s->kind == STMT_ACTOR_DEF && vm->actor_def_count < LOGO_MAX_ACTOR_DEFS) {
+            vm->actor_defs[vm->actor_def_count++] = s;
         } else if (s->kind == STMT_ON_FRAME) {
             vm->on_frame = s;
         }
@@ -1239,6 +1581,8 @@ void logo_vm_run_init(LogoVM *vm, LogoHostInput input) {
     vm->input = input;
     vm->time = 0.0;
     vm->dt = 0.016;
+    vm->current_actor = -1;
+    vm->msg_count = 0;
     logo_scene_defaults(&vm->scene);
     turtle_reset(&vm->turtle);
     vm->turtle_sp = 0;
@@ -1247,6 +1591,8 @@ void logo_vm_run_init(LogoVM *vm, LogoHostInput input) {
     vm->stopping = false;
 
     exec_list(vm, &vm->prog->top_level);
+    deliver_actor_messages(vm);
+    reap_despawned_actors(vm);
     vm->base_scene = vm->scene;
 }
 
@@ -1255,12 +1601,16 @@ void logo_vm_run_frame(LogoVM *vm, double time, double dt, LogoHostInput input) 
     vm->time = time;
     vm->dt = dt;
     vm->input = input;
+    vm->current_actor = -1;
 
     /* Reset per-frame scene primitives while keeping init-configured mode/FX/sky/light */
     vm->scene = vm->base_scene;
-    if (vm->on_frame) {
+    if (vm->on_frame || vm->actor_def_count > 0) {
         vm->scene.prim2d_count = 0;
         vm->scene.prim3d_count = 0;
+    }
+
+    if (vm->on_frame) {
         turtle_reset(&vm->turtle);
         vm->turtle_sp = 0;
         vm->call_depth = 0;
@@ -1272,5 +1622,26 @@ void logo_vm_run_frame(LogoVM *vm, double time, double dt, LogoHostInput input) 
         exec_list(vm, &vm->on_frame->as.on_frame_stmt.body);
         vm->call_depth--;
         vm->local_count = 0;
+    }
+
+    if (vm->actor_def_count > 0 && !vm->has_error) {
+        deliver_actor_messages(vm);
+
+        /* Snapshot alive actors so newly spawned actors start cleanly next frame */
+        bool run_slot[LOGO_MAX_ACTORS_LIVE];
+        for (int i = 0; i < LOGO_MAX_ACTORS_LIVE; i++) {
+            run_slot[i] = vm->actors[i].alive && !vm->actors[i].pending_despawn;
+        }
+
+        LogoVal dt_val = make_num(dt);
+        for (int i = 0; i < LOGO_MAX_ACTORS_LIVE && !vm->has_error; i++) {
+            if (!run_slot[i] || !vm->actors[i].alive || vm->actors[i].pending_despawn) continue;
+            Stmt *def = vm->actor_defs[vm->actors[i].def_index];
+            Stmt *fh = find_actor_handler(def, "frame");
+            if (fh) run_actor_handler(vm, i, fh, &dt_val, 1);
+        }
+
+        deliver_actor_messages(vm);
+        reap_despawned_actors(vm);
     }
 }

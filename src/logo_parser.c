@@ -405,6 +405,22 @@ static void stmt_free(Stmt *s) {
         case STMT_ON_FRAME:
             stmt_list_free(&s->as.on_frame_stmt.body);
             break;
+        case STMT_ACTOR_DEF:
+            stmt_list_free(&s->as.actor_def_stmt.fields);
+            stmt_list_free(&s->as.actor_def_stmt.handlers);
+            break;
+        case STMT_ON_MSG:
+            stmt_list_free(&s->as.on_msg_stmt.body);
+            break;
+        case STMT_SPAWN:
+            expr_free(s->as.spawn_stmt.count);
+            stmt_list_free(&s->as.spawn_stmt.init_body);
+            break;
+        case STMT_SEND:
+            expr_free(s->as.send_stmt.target);
+            for (int i = 0; i < s->as.send_stmt.arg_count; i++) expr_free(s->as.send_stmt.args[i].value);
+            free(s->as.send_stmt.args);
+            break;
         case STMT_CMD:
             for (int i = 0; i < s->as.cmd_stmt.arg_count; i++) expr_free(s->as.cmd_stmt.args[i].value);
             free(s->as.cmd_stmt.args);
@@ -754,7 +770,7 @@ static int bare_command_arity(const char *name) {
         str_eq_ci(name, "sphere") || str_eq_ci(name, "mode") ||
         str_eq_ci(name, "sky") || str_eq_ci(name, "material") ||
         str_eq_ci(name, "light") || str_eq_ci(name, "fx") ||
-        str_eq_ci(name, "play")) return 1;
+        str_eq_ci(name, "play") || str_eq_ci(name, "look_at")) return 1;
 
     if (str_eq_ci(name, "rect") || str_eq_ci(name, "capsule") ||
         str_eq_ci(name, "cylinder") || str_eq_ci(name, "cone") ||
@@ -855,11 +871,11 @@ static Stmt *parse_stmt(Parser *p) {
         return s;
     }
 
-    /* on frame(dt) ... end */
+    /* on frame(dt) ... end  (top-level game loop) */
     if (match_ident(p, "on")) {
         advance(p);
         if (!match_ident(p, "frame")) {
-            parser_error(p, line, "Expected 'frame' after 'on'");
+            parser_error(p, line, "Expected 'frame' after 'on' at top level");
             return NULL;
         }
         advance(p);
@@ -875,6 +891,140 @@ static Stmt *parse_stmt(Parser *p) {
             else parser_error(p, p->cur.line, "Expected ')' after on frame parameter");
         }
         parse_end_block(p, &s->as.on_frame_stmt.body);
+        return s;
+    }
+
+    /* actor <name> ... end */
+    if (match_ident(p, "actor")) {
+        advance(p);
+        if (p->cur.kind != TOK_IDENT) {
+            parser_error(p, line, "Expected actor name after 'actor'");
+            return NULL;
+        }
+        Stmt *s = new_stmt(STMT_ACTOR_DEF, line);
+        str_copy_lower(s->as.actor_def_stmt.name, sizeof(s->as.actor_def_stmt.name), p->cur.text);
+        advance(p);
+
+        while (p->cur.kind != TOK_EOF && !p->has_error) {
+            skip_newlines(p);
+            if (p->cur.kind == TOK_EOF) {
+                parser_error(p, p->cur.line, "Expected 'end' to close actor '%s'", s->as.actor_def_stmt.name);
+                break;
+            }
+            if (match_ident(p, "end")) {
+                advance(p);
+                break;
+            }
+            if (match_ident(p, "let")) {
+                stmt_list_push(&s->as.actor_def_stmt.fields, parse_stmt(p));
+            } else if (match_ident(p, "on")) {
+                int hline = p->cur.line;
+                advance(p);
+                if (p->cur.kind != TOK_IDENT) {
+                    parser_error(p, hline, "Expected handler name after 'on'");
+                    break;
+                }
+                Stmt *h = new_stmt(STMT_ON_MSG, hline);
+                str_copy_lower(h->as.on_msg_stmt.msg_name, sizeof(h->as.on_msg_stmt.msg_name), p->cur.text);
+                advance(p);
+                if (p->cur.kind == TOK_LPAREN) {
+                    advance(p);
+                    while (p->cur.kind != TOK_RPAREN && p->cur.kind != TOK_EOF) {
+                        if (p->cur.kind == TOK_IDENT && h->as.on_msg_stmt.param_count < LOGO_MAX_PARAMS) {
+                            str_copy_lower(h->as.on_msg_stmt.params[h->as.on_msg_stmt.param_count++],
+                                           LOGO_MAX_IDENT, p->cur.text);
+                            advance(p);
+                        } else {
+                            parser_error(p, p->cur.line, "Expected parameter name in 'on %s'", h->as.on_msg_stmt.msg_name);
+                            break;
+                        }
+                        if (p->cur.kind == TOK_COMMA) advance(p);
+                        else break;
+                    }
+                    if (p->cur.kind == TOK_RPAREN) advance(p);
+                    else parser_error(p, p->cur.line, "Expected ')' after handler parameters");
+                }
+                parse_end_block(p, &h->as.on_msg_stmt.body);
+                stmt_list_push(&s->as.actor_def_stmt.handlers, h);
+            } else {
+                parser_error(p, p->cur.line, "Expected 'let', 'on', or 'end' inside actor '%s'", s->as.actor_def_stmt.name);
+                advance(p);
+            }
+        }
+        return s;
+    }
+
+    /* spawn [count] <actor> [here] [with i] [ [ ... ] ] */
+    if (match_ident(p, "spawn")) {
+        advance(p);
+        Stmt *s = new_stmt(STMT_SPAWN, line);
+
+        /* Determine if an explicit count precedes the actor name */
+        bool has_count = false;
+        if (p->cur.kind != TOK_IDENT) {
+            has_count = true;
+        } else {
+            Token nxt = peek_tok(p);
+            bool next_starts_tail = (nxt.kind == TOK_LBRACKET || nxt.kind == TOK_NEWLINE || nxt.kind == TOK_EOF ||
+                                     (nxt.kind == TOK_IDENT && (str_eq_ci(nxt.text, "here") || str_eq_ci(nxt.text, "with"))));
+            if (!next_starts_tail) has_count = true;
+        }
+        if (has_count) {
+            s->as.spawn_stmt.count = parse_expr(p, true);
+        }
+
+        if (p->cur.kind != TOK_IDENT) {
+            parser_error(p, p->cur.line, "Expected actor type name in spawn");
+            return s;
+        }
+        str_copy_lower(s->as.spawn_stmt.actor_name, sizeof(s->as.spawn_stmt.actor_name), p->cur.text);
+        advance(p);
+
+        /* Optional `here` and/or `with i` in either order */
+        for (int k = 0; k < 2; k++) {
+            if (match_ident(p, "here")) {
+                s->as.spawn_stmt.at_here = true;
+                advance(p);
+            } else if (match_ident(p, "with")) {
+                advance(p);
+                if (p->cur.kind == TOK_IDENT) {
+                    str_copy_lower(s->as.spawn_stmt.iter_var, sizeof(s->as.spawn_stmt.iter_var), p->cur.text);
+                    advance(p);
+                } else {
+                    parser_error(p, p->cur.line, "Expected iterator name after 'with'");
+                }
+            }
+        }
+
+        if (p->cur.kind == TOK_LBRACKET) {
+            parse_bracket_block(p, &s->as.spawn_stmt.init_body);
+        }
+        return s;
+    }
+
+    /* despawn */
+    if (match_ident(p, "despawn")) {
+        advance(p);
+        return new_stmt(STMT_DESPAWN, line);
+    }
+
+    /* send <target> <msg>(args...)  |  broadcast <actor> <msg>(args...) */
+    if (match_ident(p, "send") || match_ident(p, "broadcast")) {
+        bool is_bcast = match_ident(p, "broadcast");
+        advance(p);
+        Stmt *s = new_stmt(STMT_SEND, line);
+        s->as.send_stmt.is_broadcast = is_bcast;
+        s->as.send_stmt.target = parse_expr(p, true);
+        if (p->cur.kind != TOK_IDENT) {
+            parser_error(p, p->cur.line, "Expected message name in %s", is_bcast ? "broadcast" : "send");
+            return s;
+        }
+        str_copy_lower(s->as.send_stmt.msg_name, sizeof(s->as.send_stmt.msg_name), p->cur.text);
+        advance(p);
+        if (p->cur.kind == TOK_LPAREN && !p->cur.space_before) {
+            advance(p);
+            parse_call_args(p, &s->as.send_stmt.args, &s->as.send_stmt.arg_count);
+        }
         return s;
     }
 

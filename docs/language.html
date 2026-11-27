@@ -49,9 +49,11 @@
       <a href="#ch-5">05. Setup vs. 60 FPS Game Loop</a>
       <a href="#ch-6">06. Steering the 2D &amp; Retro Turtle</a>
       <a href="#ch-7">07. Flying the 3D Turtle</a>
-      <a href="#ch-8">08. Modes, FX, Shaders &amp; Sound</a>
-      <a href="#ch-9">09. How Shaders Work (Retro / 2D / 3D)</a>
-      <a href="#ch-10">10. Limits &amp; Peek Inside the C Code</a>
+      <a href="#ch-8">08. Actors &amp; Message Passing</a>
+      <a href="#ch-9">09. Modes, FX, Shaders &amp; Sound</a>
+      <a href="#ch-10">10. How Shaders Work (Retro / 2D / 3D)</a>
+      <a href="#ch-11">11. Deep Dive: Turtle to Pixel Pipeline</a>
+      <a href="#ch-12">12. Limits &amp; Peek Inside the C Code</a>
     </aside>
 
     <!-- SINGLE-COLUMN SPACIOUS READING STAGE -->
@@ -647,9 +649,165 @@ end</code></pre>
         </div>
       </section>
 
-      <!-- CHAPTER 8: MODES, PALETTES, CUSTOM SHADERS & WAV SOUND -->
+      <!-- CHAPTER 8: ACTORS & MESSAGE PASSING -->
       <section id="ch-8" class="doc-section">
-        <div class="section-index">08 / LOOKS, CUSTOM SHADERS &amp; SOUND</div>
+        <div class="section-index">08 / ACTOR MODEL</div>
+        <h2>Actors &amp; Message Passing (Swarms, Enemies &amp; Particles)</h2>
+        <p>
+          In Chapter 2, we tracked 6 enemies using separate lists (<code>enemy_alive</code>, <code>boom_t</code>, <code>boom_x</code>).
+          When a game grows to dozens of lasers, flocking drones, sparks, and shockwaves, parallel lists get messy fast.
+          TurtleFX solves this with the <strong>Actor Model</strong>: every entity is its own independent turtle with its own memory and <strong>mailbox</strong>!
+        </p>
+
+        <figure style="margin: 20px 0 24px;">
+          <img src="assets/actor_swarm.png" alt="TurtleFX Example 6: Neon Actor Swarm Space Battle" style="width:100%; display:block; border-radius:4px; border:1px solid #3a3a46;" />
+          <figcaption class="caption">Fig. 2 — Example 6 (<code>06_actor_swarm.logo</code>, press <strong>6</strong>): 5 independent actor types (<code>defender</code>, <code>drone</code>, <code>laser</code>, <code>spark</code>, <code>shockwave</code>) communicating via messages.</figcaption>
+        </figure>
+
+        <!-- INLINE SVG DIAGRAM: ACTOR MESSAGE PASSING -->
+        <div class="diagram-box" aria-label="Actor model message passing flow">
+          <svg viewBox="0 0 720 128" width="100%" role="img">
+            <rect x="8" y="12" width="164" height="102" rx="4" fill="#141418" stroke="#27272f"/>
+            <text x="22" y="36" fill="#2ee68a" font-family="JetBrains Mono, monospace" font-size="11" font-weight="600">actor defender</text>
+            <text x="22" y="58" fill="#ecece7" font-family="IBM Plex Sans, sans-serif" font-size="12">Aims with look_at</text>
+            <text x="22" y="76" fill="#ecece7" font-family="IBM Plex Sans, sans-serif" font-size="12">&amp; spawns a laser:</text>
+            <text x="22" y="98" fill="#f2b84b" font-family="JetBrains Mono, monospace" font-size="10">spawn laser here</text>
+
+            <path d="M 176 63 L 198 63" stroke="#2ee68a" stroke-width="2"/>
+            <polygon points="204,63 194,58 194,68" fill="#2ee68a"/>
+
+            <rect x="206" y="12" width="174" height="102" rx="4" fill="#141418" stroke="#27272f"/>
+            <text x="220" y="36" fill="#8ab4f8" font-family="JetBrains Mono, monospace" font-size="11" font-weight="600">actor laser</text>
+            <text x="220" y="58" fill="#ecece7" font-family="IBM Plex Sans, sans-serif" font-size="12">Finds nearby drone &amp;</text>
+            <text x="220" y="76" fill="#ecece7" font-family="IBM Plex Sans, sans-serif" font-size="12">mails a message:</text>
+            <text x="220" y="98" fill="#f2b84b" font-family="JetBrains Mono, monospace" font-size="10">send target hit(1)</text>
+
+            <path d="M 384 63 L 406 63" stroke="#2ee68a" stroke-width="2"/>
+            <polygon points="412,63 402,58 402,68" fill="#2ee68a"/>
+
+            <rect x="414" y="12" width="298" height="102" rx="4" fill="#141418" stroke="#2ee68a"/>
+            <text x="428" y="36" fill="#2ee68a" font-family="JetBrains Mono, monospace" font-size="11" font-weight="600">actor drone  →  on hit(dmg)</text>
+            <text x="428" y="58" fill="#ecece7" font-family="IBM Plex Sans, sans-serif" font-size="12">Reads its own mailbox, lowers hp, spawns</text>
+            <text x="428" y="76" fill="#ecece7" font-family="IBM Plex Sans, sans-serif" font-size="12">10 sparks + shockwave, plays boom.wav:</text>
+            <text x="428" y="98" fill="#f2b84b" font-family="JetBrains Mono, monospace" font-size="10">spawn 10 spark here [...]   despawn</text>
+          </svg>
+        </div>
+
+        <h3>Every Actor Command &amp; Built-In</h3>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th>Syntax</th><th>What It Does</th></tr>
+            </thead>
+            <tbody>
+              <tr><td><code>actor name ... end</code></td><td>Defines an actor blueprint with private <code>let</code> fields and <code>on ... end</code> handlers (<code>on spawn</code>, <code>on frame(dt)</code>, or any custom message like <code>on hit(dmg)</code>).</td></tr>
+              <tr><td><code>spawn [N] name [here] [with i] [ ... ]</code></td><td>Creates <code>N</code> actors (default 1). Add <code>here</code> to copy the current turtle's position &amp; heading! Optional <code>[ ... ]</code> sets initial fields/angle.</td></tr>
+              <tr><td><code>despawn</code></td><td>Safely removes the current actor at the end of the frame.</td></tr>
+              <tr><td><code>send target msg(args...)</code></td><td>Mails a message to one specific actor handle (never mutates another actor directly!).</td></tr>
+              <tr><td><code>broadcast name msg(args...)</code></td><td>Mails a message to <strong>every living actor</strong> of type <code>name</code> (e.g. <code>broadcast drone rage()</code>).</td></tr>
+              <tr><td><code>x</code>, <code>y</code>, <code>z</code>, <code>heading</code>, <code>self</code></td><td>Built-in properties inside any actor (read <em>and</em> write <code>x</code>, <code>y</code>, <code>z</code>, <code>heading</code> directly!).</td></tr>
+              <tr><td><code>find_nearest(name, radius: R)</code></td><td>Returns the handle of the closest living <code>name</code> actor within radius <code>R</code> (or <code>0</code> if none found).</td></tr>
+              <tr><td><code>count_actors(name)</code></td><td>Counts how many <code>name</code> actors are currently alive (or total live actors if omitted).</td></tr>
+              <tr><td><code>distance(target)</code> / <code>look_at target</code></td><td>Measures distance to another actor handle, or turns the turtle to face it (works in Retro, 2D, and 3D!).</td></tr>
+              <tr><td><code>actor_x(t)</code>, <code>actor_y(t)</code>, <code>actor_z(t)</code></td><td>Reads another actor's position safely by handle.</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="note-block">
+          <h3>Pen Tip for Actors (Trails vs. Clean Flight)</h3>
+          <p>
+            Each actor remembers its own pen state across frames! Put <code>pu</code> inside <code>on spawn ... end</code> if you want an actor to fly cleanly without leaving ink trails (like a ship or drone).
+            Leave the pen <strong>down</strong> on lasers and explosion sparks so <code>fd speed * dt</code> automatically draws a glowing motion-blur streak behind them!
+          </p>
+        </div>
+
+        <h3>Example A: Lasers, Drones &amp; Sparks Talking via Messages</h3>
+        <div class="code-box">
+          <div class="code-title">Actors Communicating with send, broadcast &amp; spawn ... here <button class="copy-btn">Copy</button></div>
+<pre><code>actor spark
+  let life = 0.35
+  on frame(dt)
+    color #ffa300
+    glow 0.7
+    fd 140 * dt              ; pen is down = automatic glowing streak!
+    life -= dt
+    if life &lt;= 0 [ despawn ]
+  end
+end
+
+actor drone
+  let hp = 2
+  let speed = 55
+
+  on spawn
+    pu                       ; fly cleanly without leaving a line trail
+  end
+
+  on frame(dt)
+    fd speed * dt
+    color #f472b6
+    glow 0.6
+    dot 8
+  end
+
+  on hit(dmg)                ; triggered when a laser calls `send target hit(1)`
+    hp -= dmg
+    if hp &lt;= 0 [
+      spawn 10 spark here [ rt rand() * 360 ]
+      play("examples/sfx/boom.wav", volume: 0.7)
+      despawn
+    ]
+  end
+
+  on rage()                  ; triggered by `broadcast drone rage()`
+    speed = 100
+  end
+end
+
+actor laser
+  on frame(dt)
+    color #2ee68a
+    glow 0.8
+    fd 440 * dt
+    let target = find_nearest(drone, radius: 18)
+    if target [
+      send target hit(1)     ; clean message passing!
+      despawn
+    ]
+  end
+end</code></pre>
+        </div>
+
+        <h3>Example B: 3D Flocking Fireflies (Actors Work in 3D Too!)</h3>
+        <div class="code-box">
+          <div class="code-title">3D Glowing Firefly Swarm Using mode 3d + Actors <button class="copy-btn">Copy</button></div>
+<pre><code>mode 3d
+fx bloom(strength: 0.6)
+
+actor firefly
+  on frame(dt)
+    let buddy = find_nearest(firefly, radius: 3.0)
+    if buddy [ look_at buddy ]
+    yaw (rand() - 0.5) * 60 * dt
+    fd 1.8 * dt
+    material emissive(#2ee68a, strength: 2.0)
+    sphere(0.14)
+  end
+end
+
+spawn 24 firefly [
+  x = (rand() - 0.5) * 8
+  y = 1 + rand() * 4
+  z = (rand() - 0.5) * 8
+  yaw rand() * 360
+]</code></pre>
+        </div>
+      </section>
+
+      <!-- CHAPTER 9: MODES, PALETTES, CUSTOM SHADERS & WAV SOUND -->
+      <section id="ch-9" class="doc-section">
+        <div class="section-index">09 / LOOKS, CUSTOM SHADERS &amp; SOUND</div>
         <h2>Modes, FX, Custom GLSL Shaders &amp; WAV Sound</h2>
         <p>
           You can completely transform the vibe of any game — from crisp neon vector to dusty 1990s GameBoy — by changing just 1 or 2 lines at the top of your script, plugging in your own custom GLSL shader, or playing <code>.wav</code> sound effects:
@@ -756,9 +914,9 @@ end</code></pre>
         </div>
       </section>
 
-      <!-- CHAPTER 9: HOW SHADERS WORK (PLAIN ENGLISH) -->
-      <section id="ch-9" class="doc-section">
-        <div class="section-index">09 / HOW THE GRAPHICS WORK</div>
+      <!-- CHAPTER 10: HOW SHADERS WORK (PLAIN ENGLISH) -->
+      <section id="ch-10" class="doc-section">
+        <div class="section-index">10 / HOW THE GRAPHICS WORK</div>
         <h2>How Shaders Work — and How Retro, 2D &amp; 3D Work Here</h2>
 
         <div class="note-block">
@@ -851,13 +1009,136 @@ end</code></pre>
         </div>
       </section>
 
-      <!-- CHAPTER 10: LIMITS & CURIOUS UNDER-THE-HOOD MAP -->
-      <section id="ch-10" class="doc-section">
-        <div class="section-index">10 / LIMITS &amp; PEEK INSIDE THE C CODE</div>
+      <!-- CHAPTER 11: DETAILED RENDER PIPELINE (TURTLE TO PIXEL) -->
+      <section id="ch-11" class="doc-section">
+        <div class="section-index">11 / DEEP DIVE: TURTLE TO PIXEL</div>
+        <h2>How a Turtle Command Becomes a Screen Pixel (Full Pipeline)</h2>
+        <p>
+          Ever wondered what <em>actually</em> happens inside the computer when you write <code>rt 45  fd 50</code>
+          (with <code>color #2ee68a</code>, <code>pen_width 4</code>, <code>glow 0.6</code>)?
+          The secret is that <strong>the turtle never draws a single pixel</strong>! Here is the exact 6-stage pipeline from text to light on your monitor:
+        </p>
+
+        <!-- INLINE SVG DIAGRAM: 6-STAGE TURTLE TO PIXEL PIPELINE -->
+        <div class="diagram-box" aria-label="6 stage pipeline from turtle movement to screen pixel">
+          <svg viewBox="0 0 720 218" width="100%" role="img">
+            <!-- Top Row: Stages 1 -> 2 -> 3 -->
+            <rect x="8" y="10" width="212" height="84" rx="4" fill="#141418" stroke="#27272f"/>
+            <text x="22" y="32" fill="#2ee68a" font-family="JetBrains Mono, monospace" font-size="11" font-weight="600">STAGE 1 · PARSER (ONCE)</text>
+            <text x="22" y="54" fill="#ecece7" font-family="IBM Plex Sans, sans-serif" font-size="12">"rt 45 fd 50" → AST tree</text>
+            <text x="22" y="74" fill="#9a9aa6" font-family="JetBrains Mono, monospace" font-size="10">logo_parser.c</text>
+
+            <path d="M 224 52 L 246 52" stroke="#2ee68a" stroke-width="2"/>
+            <polygon points="252,52 242,47 242,57" fill="#2ee68a"/>
+
+            <rect x="254" y="10" width="212" height="84" rx="4" fill="#141418" stroke="#27272f"/>
+            <text x="268" y="32" fill="#2ee68a" font-family="JetBrains Mono, monospace" font-size="11" font-weight="600">STAGE 2 · VM &amp; ACTORS</text>
+            <text x="268" y="54" fill="#ecece7" font-family="IBM Plex Sans, sans-serif" font-size="12">Math endpoint → Prim2D/3D</text>
+            <text x="268" y="74" fill="#9a9aa6" font-family="JetBrains Mono, monospace" font-size="10">logo_vm.c (60x/sec)</text>
+
+            <path d="M 470 52 L 492 52" stroke="#2ee68a" stroke-width="2"/>
+            <polygon points="498,52 488,47 488,57" fill="#2ee68a"/>
+
+            <rect x="500" y="10" width="212" height="84" rx="4" fill="#141418" stroke="#27272f"/>
+            <text x="514" y="32" fill="#8ab4f8" font-family="JetBrains Mono, monospace" font-size="11" font-weight="600">STAGE 3 · VRAM PACKING</text>
+            <text x="514" y="54" fill="#ecece7" font-family="IBM Plex Sans, sans-serif" font-size="12">RGBA32F float data texture</text>
+            <text x="514" y="74" fill="#9a9aa6" font-family="JetBrains Mono, monospace" font-size="10">renderer.c (UpdateTexture)</text>
+
+            <!-- Connector down from Stage 3 to Stage 4 -->
+            <path d="M 606 96 L 606 116" stroke="#2ee68a" stroke-width="2"/>
+            <polygon points="606,122 601,112 611,112" fill="#2ee68a"/>
+
+            <!-- Bottom Row: Stages 6 <- 5 <- 4 -->
+            <rect x="500" y="124" width="212" height="84" rx="4" fill="#141418" stroke="#8ab4f8"/>
+            <text x="514" y="146" fill="#8ab4f8" font-family="JetBrains Mono, monospace" font-size="11" font-weight="600">STAGE 4 · PASS 1 (SDF)</text>
+            <text x="514" y="168" fill="#ecece7" font-family="IBM Plex Sans, sans-serif" font-size="12">Every pixel queries distance</text>
+            <text x="514" y="188" fill="#9a9aa6" font-family="JetBrains Mono, monospace" font-size="10">FRAG_SCENE_2D / 3D</text>
+
+            <path d="M 496 166 L 474 166" stroke="#2ee68a" stroke-width="2"/>
+            <polygon points="468,166 478,161 478,171" fill="#2ee68a"/>
+
+            <rect x="254" y="124" width="212" height="84" rx="4" fill="#141418" stroke="#f2b84b"/>
+            <text x="268" y="146" fill="#f2b84b" font-family="JetBrains Mono, monospace" font-size="11" font-weight="600">STAGE 5 · PASS 2 (BLOOM)</text>
+            <text x="268" y="168" fill="#ecece7" font-family="IBM Plex Sans, sans-serif" font-size="12">Bright extract + H/V blur</text>
+            <text x="268" y="188" fill="#9a9aa6" font-family="JetBrains Mono, monospace" font-size="10">1/3-res ping-pong FBOs</text>
+
+            <path d="M 250 166 L 228 166" stroke="#2ee68a" stroke-width="2"/>
+            <polygon points="222,166 232,161 232,171" fill="#2ee68a"/>
+
+            <rect x="8" y="124" width="212" height="84" rx="4" fill="#141418" stroke="#2ee68a"/>
+            <text x="22" y="146" fill="#2ee68a" font-family="JetBrains Mono, monospace" font-size="11" font-weight="600">STAGE 6 · PASS 3 &amp; 4</text>
+            <text x="22" y="168" fill="#ecece7" font-family="IBM Plex Sans, sans-serif" font-size="12">Dither, Palette, CRT, Custom</text>
+            <text x="22" y="188" fill="#9a9aa6" font-family="JetBrains Mono, monospace" font-size="10">FRAG_POST → Monitor!</text>
+          </svg>
+        </div>
+
+        <ol class="step-list">
+          <li>
+            <strong>Stage 1 — Text → AST (Once on Load/Save):</strong>
+            <code>logo_parser.c</code> reads <code>rt 45 fd 50</code> once and turns it into compact AST structs in RAM. It never re-parses text while your game runs.
+          </li>
+          <li>
+            <strong>Stage 2 — Turtle Move → Pure Math Shape (CPU, 60×/sec):</strong>
+            Inside <code>turtle_forward()</code> (<code>logo_vm.c</code>), starting from <code>(0, 0)</code> at <code>45°</code>, the VM computes the endpoint
+            <code>(35.36, 35.36)</code> using <code>sin</code> and <code>cos</code>. Because the pen is down, it appends one <code>Prim2D</code> struct
+            (start point, end point, half-width <code>2.0</code>, RGBA color, glow <code>0.6</code>, blend mode) into <code>vm-&gt;scene.prims2d[]</code>.
+            For <code>fill [ ... ]</code>, an ear-clipping triangulator slices concave polygons into <code>PRIM2D_TRIANGLE</code> entries.
+            For Actors, the VM runs every alive actor's <code>on frame(dt)</code> and mailbox handlers into the exact same list!
+          </li>
+          <li>
+            <strong>Stage 3 — Packing Shapes into GPU Textures (CPU → VRAM):</strong>
+            OpenGL 3.3 uniform arrays hit small size limits. Instead, <code>renderer.c</code> packs each shape into a floating-point <code>RGBA32F</code> texture
+            and uploads it in one call to <code>UpdateTexture()</code>:
+          </li>
+        </ol>
+
+        <div class="mini-grid">
+          <div class="mini-box">
+            <h4>2D / Retro Texture (1024 × 4 RGBA32F)</h4>
+            <p>
+              <strong>Row 0:</strong> <code>(type, x0, y0, x1)</code><br>
+              <strong>Row 1:</strong> <code>(y1, x2/halfW, y2/halfH, radius/angle)</code><br>
+              <strong>Row 2:</strong> <code>(r, g, b, a)</code><br>
+              <strong>Row 3:</strong> <code>(glow, blendMode, 0, 0)</code>
+            </p>
+          </div>
+          <div class="mini-box">
+            <h4>3D SDF Texture (256 × 5 RGBA32F)</h4>
+            <p>
+              <strong>Row 0:</strong> <code>(type, px, py, pz)</code><br>
+              <strong>Row 1:</strong> <code>(fwd.x, fwd.y, fwd.z, size0)</code><br>
+              <strong>Row 2:</strong> <code>(up.x, up.y, up.z, size1)</code><br>
+              <strong>Row 3–4:</strong> <code>(r, g, b, size2)</code> + <code>(mat, param, smoothK, op)</code>
+            </p>
+          </div>
+        </div>
+
+        <ol class="step-list" start="4">
+          <li>
+            <strong>Stage 4 — Pass 1: Parallel Signed Distance Shader (<code>FRAG_SCENE_2D</code> / <code>FRAG_SCENE_3D</code>):</strong>
+            <code>renderer.c</code> draws one giant rectangle covering the offscreen framebuffer <code>scene_rt</code>. Every pixel runs the shader in parallel,
+            fetches each shape via <code>texelFetch(uPrims, ivec2(i, row), 0)</code>, and measures its exact mathematical distance <code>d</code>:
+            <br>• <strong>2D mode:</strong> <code>d = sdSegment(p, a, b) - halfWidth</code>. Pixels where <code>d &lt; 0</code> are inside the line; <code>smoothstep</code> gives crisp anti-aliasing, and <code>exp(-max(d, 0) / radius)</code> adds the neon halo!
+            <br>• <strong>Retro mode:</strong> <code>scene_rt</code> is shrunk to <code>320×180</code> (<code>TEXTURE_FILTER_POINT</code>), pixel centers snap to <code>floor(uv * res) + 0.5</code>, and coverage becomes a crisp 1-bit <code>step(d, 0.0)</code>.
+            <br>• <strong>3D mode:</strong> Every pixel shoots a 3D camera ray and sphere-traces up to 84 steps (<code>t += mapScene(pos).d</code>), blending shapes with <code>min</code>, <code>smin</code> (<code>smooth</code>), or <code>max(d, -dPrim)</code> (<code>carve</code>), then computes surface normals, 28-step soft shadows, AO, and fog.
+          </li>
+          <li>
+            <strong>Stage 5 — Pass 2: Optional 2-Pass Bloom:</strong>
+            If <code>fx bloom(...)</code> is active, <code>FRAG_BLOOM_EXTRACT</code> pulls bright pixels (<code>lum &gt; 0.55</code>) into a 1/3-resolution FBO and <code>FRAG_BLUR</code> blurs them horizontally, then vertically.
+          </li>
+          <li>
+            <strong>Stage 6 — Pass 3 &amp; 4: Unified Post-FX + Custom Shader → Monitor:</strong>
+            <code>FRAG_POST</code> composites <code>scene_rt</code> + bloom onto your screen with CRT curvature, soft tone-mapping, 4×4 Bayer dithering, palette quantization (PICO-8, GameBoy, CGA, Sunset), scanlines, and vignette. If you attached <code>fx shader(...)</code>, Pass 4 runs your custom GLSL code right on top before the pixel lights up on your display!
+          </li>
+        </ol>
+      </section>
+
+      <!-- CHAPTER 12: LIMITS & CURIOUS UNDER-THE-HOOD MAP -->
+      <section id="ch-12" class="doc-section">
+        <div class="section-index">12 / LIMITS &amp; PEEK INSIDE THE C CODE</div>
         <h2>Engine Limits &amp; Where Everything Lives</h2>
         <p>
-          Curious how the C11 + raylib engine stores your shapes? Every frame, TurtleFX packs your shapes into floating-point GPU textures
-          (<code>1024×4</code> for 2D, <code>256×5</code> for 3D) so the shaders can read hundreds of shapes without hitting OpenGL limits.
+          Here are the built-in memory ceilings and the exact C source files powering every stage of the pipeline:
         </p>
 
         <div class="table-wrap">
@@ -868,9 +1149,11 @@ end</code></pre>
             <tbody>
               <tr><td>2D / Retro shapes per frame</td><td><strong>1,024</strong> segments, dots, rects, or filled triangles</td></tr>
               <tr><td>3D shapes per frame</td><td><strong>256</strong> spheres, capsules, boxes, cylinders, cones, or toruses</td></tr>
+              <tr><td>Live Actors &amp; Messages</td><td><strong>256</strong> simultaneous actors, <strong>32</strong> actor types, <strong>12</strong> fields/actor, <strong>256</strong> queued messages/wave</td></tr>
               <tr><td>Items inside a single list</td><td><strong>64</strong> numbers (<code>[0]</code> through <code>[63]</code>)</td></tr>
               <tr><td>Variables / Custom commands</td><td><strong>256</strong> globals, <strong>256</strong> locals, <strong>64</strong> <code>to ... end</code> commands</td></tr>
               <tr><td>Nesting depth</td><td><strong>64</strong> nested <code>branch</code>/<code>at</code> blocks, <strong>64</strong> recursion levels, <strong>128</strong> corners per <code>fill</code></td></tr>
+              <tr><td>Cached WAV sounds</td><td><strong>32</strong> unique <code>.wav</code> files auto-cached in RAM</td></tr>
             </tbody>
           </table>
         </div>
