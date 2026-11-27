@@ -49,6 +49,7 @@ jobs:
             -sFULL_ES3=1 \
             -sALLOW_MEMORY_GROWTH=1 \
             -sINITIAL_MEMORY=67108864 \
+            -sSTACK_SIZE=4194304 \
             -sEXPORTED_RUNTIME_METHODS=ccall,cwrap,UTF8ToString \
             -sEXPORTED_FUNCTIONS=_main,_wasm_load_example,_wasm_run_code,_wasm_set_debug,_wasm_debug_cmd,_wasm_set_input_enabled,_wasm_get_debug_enabled,_wasm_get_error,_malloc,_free \
             --preload-file examples@examples \

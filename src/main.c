@@ -1083,7 +1083,9 @@ static void update_draw_frame(void) {
     g_app.input.mouse_y = (float)GetMouseY();
 
     bool reloaded = false;
+#ifndef __EMSCRIPTEN__
     bool want_screenshot = false;
+#endif
     if (g_input_enabled) {
         if (IsKeyPressed(KEY_ONE))   { session_load(&g_app.sess, BUILTIN_EXAMPLES[0], g_app.input); reloaded = true; }
         if (IsKeyPressed(KEY_TWO))   { session_load(&g_app.sess, BUILTIN_EXAMPLES[1], g_app.input); reloaded = true; }
