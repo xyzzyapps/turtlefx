@@ -225,6 +225,12 @@ static LogoVar *find_var(LogoVM *vm, const char *name) {
             if (seq(a->fields[i].name, name)) return &a->fields[i];
         }
     }
+    if (vm->spawner_actor >= 0) {
+        ActorInstance *sp = &vm->actors[vm->spawner_actor];
+        for (int i = 0; i < sp->field_count; i++) {
+            if (seq(sp->fields[i].name, name)) return &sp->fields[i];
+        }
+    }
     for (int i = vm->global_count - 1; i >= 0; i--) {
         if (seq(vm->globals[i].name, name)) return &vm->globals[i];
     }
@@ -523,6 +529,16 @@ static LogoVal eval_expr(LogoVM *vm, Expr *e) {
             if (seq(fn, "sin"))   return make_num(sin(val_as_num(eval_arg_named(vm, args, ac, "x", 0, make_num(0)))));
             if (seq(fn, "cos"))   return make_num(cos(val_as_num(eval_arg_named(vm, args, ac, "x", 0, make_num(0)))));
             if (seq(fn, "tan"))   return make_num(tan(val_as_num(eval_arg_named(vm, args, ac, "x", 0, make_num(0)))));
+            if (seq(fn, "atan2")) {
+                double y = val_as_num(eval_arg_named(vm, args, ac, "y", 0, make_num(0)));
+                double x = val_as_num(eval_arg_named(vm, args, ac, "x", 1, make_num(1)));
+                return make_num(atan2(y, x));
+            }
+            if (seq(fn, "datan2")) {
+                double y = val_as_num(eval_arg_named(vm, args, ac, "y", 0, make_num(0)));
+                double x = val_as_num(eval_arg_named(vm, args, ac, "x", 1, make_num(1)));
+                return make_num(atan2(y, x) * 180.0 / M_PI);
+            }
             if (seq(fn, "dsin"))  return make_num(sin(val_as_num(eval_arg_named(vm, args, ac, "x", 0, make_num(0))) * M_PI / 180.0));
             if (seq(fn, "dcos"))  return make_num(cos(val_as_num(eval_arg_named(vm, args, ac, "x", 0, make_num(0))) * M_PI / 180.0));
             if (seq(fn, "rad"))   return make_num(val_as_num(eval_arg_named(vm, args, ac, "x", 0, make_num(0))) * M_PI / 180.0);
@@ -1310,12 +1326,15 @@ static void exec_spawn(LogoVM *vm, Stmt *s) {
             }
         }
 
-        /* Run optional spawn [ ... ] init block */
+        /* Run optional spawn [ ... ] init block (can read spawner actor's fields!) */
         if (s->as.spawn_stmt.init_body.count > 0) {
+            int prev_spawner = vm->spawner_actor;
+            vm->spawner_actor = prev_actor;
             int saved_locals = vm->local_count;
             if (has_iter) declare_var(vm, s->as.spawn_stmt.iter_var, make_num((double)n), true);
             exec_list(vm, &s->as.spawn_stmt.init_body);
             vm->local_count = saved_locals;
+            vm->spawner_actor = prev_spawner;
         }
 
         act->turtle = vm->turtle;
@@ -1559,6 +1578,7 @@ void logo_vm_init(LogoVM *vm, LogoProgram *prog) {
     vm->prog = prog;
     vm->rng_state = 0x12345678u;
     vm->current_actor = -1;
+    vm->spawner_actor = -1;
     logo_scene_defaults(&vm->base_scene);
     vm->scene = vm->base_scene;
     turtle_reset(&vm->turtle);

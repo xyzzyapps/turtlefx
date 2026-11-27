@@ -15,9 +15,10 @@ static const char *BUILTIN_EXAMPLES[] = {
     "examples/03_3d_crystal_tree.logo",
     "examples/04_retro_3d.logo",
     "examples/05_custom_shader.logo",
-    "examples/06_actor_swarm.logo"
+    "examples/06_actor_swarm.logo",
+    "examples/07_hades_courtyard.logo"
 };
-static const int NUM_EXAMPLES = 6;
+static const int NUM_EXAMPLES = 7;
 
 /* Simple cached WAV sound bank (lazy-loaded on first play("file.wav")) */
 #define MAX_CACHED_SOUNDS 32
@@ -226,6 +227,24 @@ static int run_verify_mode(int argc, char **argv) {
                     snprintf(sess.load_err, sizeof(sess.load_err), "Expected >= 1 drone kill via Actor message passing");
                     ok = false;
                 }
+            } else if (strstr(path, "07_hades_courtyard.logo") != NULL) {
+                LogoHostInput sim = dummy;
+                sim.is_key_down = test_space_down;
+                double t = 0.0;
+                for (int f = 0; f < 60 && !sess.vm->has_error; f++) {
+                    t += 0.016;
+                    logo_vm_run_frame(sess.vm, t, 0.016, sim);
+                }
+                double hits = 0.0;
+                for (int g = 0; g < sess.vm->global_count; g++) {
+                    if (strcmp(sess.vm->globals[g].name, "total_hits") == 0) hits = sess.vm->globals[g].val.num;
+                }
+                printf("       -> Hades courtyard combat check: total_hits=%.0f (prims3D=%d)\n",
+                       hits, sess.vm->scene.prim3d_count);
+                if (hits < 1.0) {
+                    snprintf(sess.load_err, sizeof(sess.load_err), "Expected >= 1 hit on Skelly in Hades courtyard");
+                    ok = false;
+                }
             } else {
                 logo_vm_run_frame(sess.vm, 1.0, 0.016, dummy);
             }
@@ -283,6 +302,15 @@ static int run_render_test(void) {
             for (int f = 0; f < 95; f++) {
                 t += 0.016;
                 logo_vm_run_frame(sess.vm, t, 0.016, input);
+            }
+        } else if (strstr(BUILTIN_EXAMPLES[i], "07_hades_courtyard.logo") != NULL) {
+            /* Step 22 frames with Space held so Zagreus lands a mid-swing crimson slash on Skelly! */
+            LogoHostInput sim = input;
+            sim.is_key_down = test_space_down;
+            double t = 0.0;
+            for (int f = 0; f < 22; f++) {
+                t += 0.016;
+                logo_vm_run_frame(sess.vm, t, 0.016, sim);
             }
         } else {
             logo_vm_run_frame(sess.vm, 1.5, 0.016, input);
@@ -479,13 +507,14 @@ int main(int argc, char **argv) {
         input.mouse_x = (float)GetMouseX();
         input.mouse_y = (float)GetMouseY();
 
-        /* Built-in example switching (1-6), manual reload (R), HUD toggle (H), Screenshot (F12/P) */
+        /* Built-in example switching (1-7), manual reload (R), HUD toggle (H), Screenshot (F12/P) */
         if (IsKeyPressed(KEY_ONE))   session_load(&sess, BUILTIN_EXAMPLES[0], input);
         if (IsKeyPressed(KEY_TWO))   session_load(&sess, BUILTIN_EXAMPLES[1], input);
         if (IsKeyPressed(KEY_THREE)) session_load(&sess, BUILTIN_EXAMPLES[2], input);
         if (IsKeyPressed(KEY_FOUR))  session_load(&sess, BUILTIN_EXAMPLES[3], input);
         if (IsKeyPressed(KEY_FIVE))  session_load(&sess, BUILTIN_EXAMPLES[4], input);
         if (IsKeyPressed(KEY_SIX))   session_load(&sess, BUILTIN_EXAMPLES[5], input);
+        if (IsKeyPressed(KEY_SEVEN)) session_load(&sess, BUILTIN_EXAMPLES[6], input);
         if (IsKeyPressed(KEY_R))     session_load(&sess, sess.path, input);
         if (IsKeyPressed(KEY_H))     show_hud = !show_hud;
         bool want_screenshot = IsKeyPressed(KEY_F12) || IsKeyPressed(KEY_P);
@@ -526,14 +555,14 @@ int main(int argc, char **argv) {
             if (show_hud && sess.vm) {
                 const SceneIR *sc = &sess.vm->scene;
                 int prims = (sc->mode == RENDER_MODE_3D) ? sc->prim3d_count : sc->prim2d_count;
-                DrawRectangle(12, 12, 920, 56, (Color){8, 10, 18, 195});
-                DrawRectangleLines(12, 12, 920, 56, (Color){70, 90, 130, 180});
+                DrawRectangle(12, 12, 980, 56, (Color){8, 10, 18, 195});
+                DrawRectangleLines(12, 12, 980, 56, (Color){70, 90, 130, 180});
 
                 char line1[256];
                 snprintf(line1, sizeof(line1), "TurtleFX  |  %.120s  |  Mode: %s  |  Prims: %d  |  %d FPS",
                          sess.path, mode_name(sc->mode), prims, GetFPS());
                 DrawText(line1, 24, 20, 16, (Color){230, 240, 255, 255});
-                DrawText("[1] Retro  [2] Neon 2D  [3] 3D Crystal  [4] Retro 3D  [5] Shader  [6] Actors  [R] Reload  [H] HUD  [F12] Shot",
+                DrawText("[1] Retro [2] 2D [3] 3D [4] Retro3D [5] Shader [6] Actors [7] Hades Iso  [R] Reload [H] HUD [F12] Shot",
                          24, 44, 13, (Color){155, 175, 210, 255});
             }
 

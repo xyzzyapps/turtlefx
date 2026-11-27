@@ -43,9 +43,9 @@ Run a specific `.logo` script or headless test suite:
 
 | Key | Action |
 |---|---|
-| `1` – `6` | Switch live between built-in examples (`Retro Arcade`, `Neon 2D`, `3D Crystal Tree`, `Retro 3D`, `Custom GLSL Shader`, `Actor Swarm`) |
-| `Left` / `Right` (`A` / `D`) | Steer ship in `01_retro_arcade.logo` |
-| `Space` | Fire lasers & destroy enemy ships in `01_retro_arcade.logo` |
+| `1` – `7` | Switch live between built-in examples (`Retro Arcade`, `Neon 2D`, `3D Crystal Tree`, `Retro 3D`, `Custom GLSL Shader`, `Actor Swarm`, `Hades Isometric 3D`) |
+| `WASD` / `Arrows` | Move (`01_retro_arcade`, `06_actor_swarm`, `07_hades_courtyard` isometric) |
+| `Space` / `Shift` / `E` | Fire / 3-Hit Sword Slash (`Space`), Fiery Dash (`Shift`), Bloodstone Cast (`E`) |
 | `R` | Reload active `.logo` script manually (also auto hot-reloads on file save) |
 | `H` | Toggle HUD overlay |
 | `F12` / `P` | Save in-game screenshot (`screenshot_001.png`, ...) |

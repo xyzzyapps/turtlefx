@@ -526,7 +526,7 @@ static Expr *parse_primary(Parser *p) {
     }
     if (t.kind == TOK_IDENT) {
         advance(p);
-        if (p->cur.kind == TOK_LPAREN) {
+        if (p->cur.kind == TOK_LPAREN && !p->cur.space_before) {
             advance(p);
             Expr *e = new_expr(EXPR_CALL, t.line);
             str_copy_lower(e->as.call.name, sizeof(e->as.call.name), t.text);
@@ -806,9 +806,17 @@ static Stmt *parse_stmt(Parser *p) {
         Stmt *s = new_stmt(STMT_IF, line);
         s->as.if_stmt.cond = parse_expr(p, false);
         parse_bracket_block(p, &s->as.if_stmt.then_branch);
+        /* Allow optional newline before `else` */
+        while (p->cur.kind == TOK_NEWLINE && peek_tok(p).kind == TOK_IDENT && str_eq_ci(peek_tok(p).text, "else")) {
+            advance(p);
+        }
         if (match_ident(p, "else")) {
             advance(p);
-            parse_bracket_block(p, &s->as.if_stmt.else_branch);
+            if (match_ident(p, "if")) {
+                stmt_list_push(&s->as.if_stmt.else_branch, parse_stmt(p));
+            } else {
+                parse_bracket_block(p, &s->as.if_stmt.else_branch);
+            }
         }
         return s;
     }

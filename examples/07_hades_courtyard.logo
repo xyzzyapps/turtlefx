@@ -1,0 +1,565 @@
+; Example 7: Hades-Inspired Isometric Training Courtyard (3D SDF + Actor Model)
+; Controls:
+;   WASD / Arrow Keys : Isometric movement
+;   Space / J         : 3-Hit Stygian Blade Slash Combo
+;   Shift             : Fiery Underworld Dash (with afterimages)
+;   E / K             : Cast Bloodstone Projectile
+
+mode 3d
+sky gradient(#0c0714, #26101f)
+light sun(dir: [-0.55, -0.82, -0.45], color: #ffba92, shadows: soft)
+fx bloom(strength: 0.55, radius: 10)
+fx vignette(0.32)
+
+; Global combat & camera state
+let total_hits = 0
+let cam_x = 0.0
+let cam_z = 0.0
+let shake = 0.0
+
+; --- 1. 3D Hit / Explosion Spark Actor ---
+actor spark3d
+  let vx = 0
+  let vy = 3.5
+  let vz = 0
+  let life = 0.35
+  let hue_mode = 0    ; 0 = fiery gold/red, 1 = Styx emerald
+
+  on frame(dt)
+    x += vx * dt
+    y += vy * dt
+    z += vz * dt
+    vy -= 11.0 * dt
+    if y < 0.08 [ y = 0.08  vy = abs(vy) * 0.35 ]
+    life -= dt
+    if life <= 0 [ despawn ]
+
+    at x y z [
+      if hue_mode == 1 [
+        material emissive(#2ee68a, strength: 2.4)
+      ] else [
+        if life > 0.18 [ material emissive(#ffec27, strength: 2.5) ]
+        else           [ material emissive(#ff3b2f, strength: 2.2) ]
+      ]
+      sphere(0.11 * (life / 0.35) + 0.04)
+    ]
+  end
+end
+
+; --- 2. Fiery Dash Afterimage Ghost Actor ---
+actor dash_ghost
+  let life = 0.22
+  let yaw_deg = 0
+
+  on frame(dt)
+    life -= dt
+    if life <= 0 [ despawn ]
+    let s = life / 0.22
+    at x (y + 0.65) z [
+      yaw yaw_deg
+      material emissive(#ff5126, strength: 1.9 * s)
+      capsule(0.65 * s, 0.24 * s)
+    ]
+  end
+end
+
+; --- 3. Blazing Crimson Stygian Blade Slash Wave Actor ---
+actor slash_arc
+  let life = 0.18
+  let yaw_deg = 0
+  let combo_step = 1
+
+  on frame(dt)
+    life -= dt
+    if life <= 0 [ despawn ]
+    let p = 1.0 - (life / 0.18)
+    let sweep = (p - 0.5) * 110
+    if combo_step == 2 [ sweep = -sweep ]
+
+    at x 0.95 z [
+      yaw yaw_deg
+      if combo_step == 3 [
+        ; Combo Finisher: heavy golden-crimson shockwave ring
+        material emissive(#ff2a4b, strength: 2.8)
+        torus(1.0 + p * 1.15, 0.12 * (1.0 - p * 0.6))
+      ] else [
+        ; Sweeping crescent blade trail
+        yaw sweep
+        fd 0.85
+        material emissive(#ff2a4b, strength: 2.7)
+        capsule(1.15, 0.13 * (1.0 - p * 0.5))
+        material emissive(#ffd166, strength: 2.4)
+        fd 0.45
+        sphere(0.16 * (1.0 - p * 0.5))
+      ]
+    ]
+  end
+end
+
+; --- 4. Bloodstone Cast Projectile Actor ---
+actor bloodstone
+  let vx = 0
+  let vz = 0
+  let life = 1.1
+
+  on frame(dt)
+    x += vx * dt
+    z += vz * dt
+    life -= dt
+
+    let sk = find_nearest(skelly, radius: 1.05)
+    if sk [
+      send sk hit(3)
+      spawn 5 spark3d here [
+        vx = (rand() - 0.5) * 6
+        vy = 2.0 + rand() * 3.5
+        vz = (rand() - 0.5) * 6
+      ]
+      despawn
+    ]
+
+    let u = find_nearest(urn, radius: 0.95)
+    if u [
+      send u hit(2)
+      despawn
+    ]
+
+    if life <= 0 or abs(x) > 5.4 or abs(z) > 5.4 [ despawn ]
+
+    at x 0.95 z [
+      yaw time * 260
+      pitch 35
+      material emissive(#ff1e42, strength: 2.9)
+      box(0.32, 0.32, 0.52)
+    ]
+  end
+end
+
+; --- 5. Breakable Underworld Golden Urn Actor ---
+actor urn
+  let alive_urn = 1
+  let respawn_t = 0
+
+  on frame(dt)
+    if alive_urn == 0 [
+      respawn_t -= dt
+      if respawn_t <= 0 [
+        alive_urn = 1
+        spawn 4 spark3d here [
+          hue_mode = 1
+          vx = (rand() - 0.5) * 3
+          vy = 2.5 + rand() * 2
+          vz = (rand() - 0.5) * 3
+        ]
+      ]
+      stop
+    ]
+
+    at x 0.45 z [
+      material glossy(#b87333, rough: 0.28)
+      sphere(0.42)
+      at x 0.82 z [
+        material glossy(#f2b84b, rough: 0.22)
+        torus(0.24, 0.08)
+      ]
+    ]
+  end
+
+  on hit(dmg)
+    if alive_urn == 0 [ stop ]
+    alive_urn = 0
+    respawn_t = 4.5
+    total_hits += 1
+    shake = 0.14
+    play("examples/sfx/boom.wav", volume: 0.65, pitch: 1.35)
+    spawn 6 spark3d here [
+      vx = (rand() - 0.5) * 6.5
+      vy = 2.2 + rand() * 3.5
+      vz = (rand() - 0.5) * 6.5
+    ]
+  end
+end
+
+; --- 6. Skelly — Immortal Training Dummy Actor ---
+actor skelly
+  let max_hp = 12
+  let hp = 12
+  let flash = 0
+  let recoil = 0
+  let respawn_t = 0
+  let home_x = 1.35
+  let home_z = -0.65
+
+  on frame(dt)
+    if flash > 0 [ flash -= dt ]
+    if recoil > 0 [ recoil -= dt ]
+
+    ; Re-assemble from emerald Styx mist after being shattered!
+    if hp <= 0 [
+      respawn_t -= dt
+      if respawn_t <= 0 [
+        hp = max_hp
+        x = home_x
+        z = home_z
+        flash = 0.18
+        spawn 6 spark3d here [
+          hue_mode = 1
+          vx = (rand() - 0.5) * 4.5
+          vy = 2.5 + rand() * 3.0
+          vz = (rand() - 0.5) * 4.5
+        ]
+      ] else [
+        ; Glowing green Styx summoning sigil on the floor while regenerating
+        at home_x 0.08 home_z [
+          material emissive(#2ee68a, strength: 1.8)
+          torus(0.55 + sin(time * 8) * 0.08, 0.06)
+        ]
+        stop
+      ]
+    ]
+
+    ; Gently spring back to home post after knockback
+    x = lerp(x, home_x, clamp(dt * 5.0, 0, 1))
+    z = lerp(z, home_z, clamp(dt * 5.0, 0, 1))
+
+    let wobble = sin(time * 3.5) * 3.0
+    if recoil > 0 [ wobble = -24.0 * (recoil / 0.18) ]
+
+    ; Wooden training post base
+    at x 0.18 z [
+      material matte(#4a3222)
+      cylinder(radius: 0.52, height: 0.36)
+    ]
+
+    ; Skelly's rattling skeleton body
+    at x 0.36 z [
+      yaw 56
+      pitch (90 + wobble)
+
+      if flash > 0 [ material emissive(#ffffff, strength: 2.2) ]
+      else         [ material matte(#e8e2d5) ]
+
+      ; Spine & bony ribcage
+      capsule(0.95, 0.14)
+      fd 0.60
+      box(0.66, 0.40, 0.26)
+
+      ; Outstretched bony arms
+      branch [ yaw 90   pitch -15  capsule(0.62, 0.085) ]
+      branch [ yaw -90  pitch -15  capsule(0.62, 0.085) ]
+
+      ; Skull
+      fd 0.56
+      sphere(0.32)
+
+      ; Two glowing emerald underworld eyes facing Zagreus
+      material emissive(#2ee68a, strength: 2.5)
+      branch [ fd 0.08  pitch -82  yaw 22   fd 0.28  sphere(0.065) ]
+      branch [ fd 0.08  pitch -82  yaw -22  fd 0.28  sphere(0.065) ]
+    ]
+
+    ; Diegetic 3D floating health bar directly above Skelly's head
+    let ratio = clamp(hp / max_hp, 0.0, 1.0)
+    at x 2.38 z [
+      yaw -45
+      material matte(#1a111d)
+      box(1.25, 0.14, 0.10)
+      if ratio > 0.01 [
+        if ratio > 0.35 [ material emissive(#ff3b4e, strength: 1.9) ]
+        else            [ material emissive(#fbbf24, strength: 2.3) ]
+        box(1.18 * ratio, 0.10, 0.13)
+      ]
+    ]
+  end
+
+  on hit(dmg)
+    if hp <= 0 [ stop ]
+    hp -= dmg
+    total_hits += 1
+    flash = 0.11
+    recoil = 0.18
+    shake = 0.22
+
+    ; Knock Skelly slightly back away from Zagreus
+    let h = find_nearest(hero)
+    if h [
+      let dx = x - actor_x(h)
+      let dz = z - actor_z(h)
+      let d = max(sqrt(dx * dx + dz * dz), 0.1)
+      x += (dx / d) * 0.48
+      z += (dz / d) * 0.48
+    ]
+
+    if hp <= 0 [
+      respawn_t = 1.6
+      play("examples/sfx/boom.wav", volume: 0.9, pitch: 0.72)
+      spawn 8 spark3d here [
+        hue_mode = 1
+        vx = (rand() - 0.5) * 7.0
+        vy = 2.5 + rand() * 4.0
+        vz = (rand() - 0.5) * 7.0
+      ]
+    ] else [
+      play("examples/sfx/boom.wav", volume: 0.65, pitch: 1.05 + rand() * 0.2)
+      spawn 5 spark3d here [
+        vx = (rand() - 0.5) * 6.0
+        vy = 2.0 + rand() * 3.0
+        vz = (rand() - 0.5) * 6.0
+      ]
+    ]
+  end
+end
+
+; --- 7. Zagreus-Inspired Underworld Prince (Playable Hero Actor) ---
+actor hero
+  let face_deg = -124   ; initially facing Skelly!
+  let dash_t = 0
+  let dash_cd = 0
+  let dash_vx = 0
+  let dash_vz = 0
+  let swing_t = 0
+  let swing_cd = 0
+  let combo = 0
+  let cast_cd = 0
+  let walk_bob = 0
+
+  on frame(dt)
+    if dash_cd > 0  [ dash_cd -= dt ]
+    if swing_t > 0  [ swing_t -= dt ]
+    if swing_cd > 0 [ swing_cd -= dt ]
+    if cast_cd > 0  [ cast_cd -= dt ]
+
+    ; Isometric screen-aligned WASD / Arrow movement
+    let mx = 0
+    let mz = 0
+    if key("up")    [ mx -= 0.707  mz -= 0.707 ]
+    if key("down")  [ mx += 0.707  mz += 0.707 ]
+    if key("right") [ mx += 0.707  mz -= 0.707 ]
+    if key("left")  [ mx -= 0.707  mz += 0.707 ]
+
+    let mlen = sqrt(mx * mx + mz * mz)
+    if mlen > 0.01 [
+      mx /= mlen
+      mz /= mlen
+      face_deg = -datan2(mx, mz)
+      walk_bob += dt * 15.0
+    ]
+
+    ; Hades Dash (Shift)
+    if key_pressed("shift") and dash_cd <= 0 [
+      dash_t = 0.15
+      dash_cd = 0.42
+      if mlen > 0.01 [
+        dash_vx = mx * 14.5
+        dash_vz = mz * 14.5
+      ] else [
+        dash_vx = -dsin(face_deg) * 14.5
+        dash_vz = dcos(face_deg) * 14.5
+      ]
+      play("examples/sfx/laser.wav", volume: 0.45, pitch: 1.65)
+    ]
+
+    if dash_t > 0 [
+      dash_t -= dt
+      x += dash_vx * dt
+      z += dash_vz * dt
+      spawn dash_ghost here [ yaw_deg = face_deg ]
+    ] else if mlen > 0.01 [
+      x += mx * 5.2 * dt
+      z += mz * 5.2 * dt
+    ]
+
+    ; Keep hero inside courtyard stone arena
+    x = clamp(x, -4.4, 4.4)
+    z = clamp(z, -4.1, 4.4)
+
+    ; 3-Hit Stygian Blade Slash Combo (Space or J)
+    if (key("space") or key("j")) and swing_cd <= 0 [
+      combo = (combo % 3) + 1
+      swing_t = 0.18
+      if combo == 3 [ swing_cd = 0.34 ] else [ swing_cd = 0.22 ]
+
+      let dmg = 2
+      if combo == 3 [ dmg = 4 ]
+
+      play("examples/sfx/laser.wav", volume: 0.55, pitch: 0.85 + combo * 0.18)
+
+      ; Slight forward lunge on strike
+      x += -dsin(face_deg) * 0.28
+      z += dcos(face_deg) * 0.28
+
+      at x 0 z [
+        yaw face_deg
+        spawn slash_arc here [
+          yaw_deg = face_deg
+          combo_step = combo
+        ]
+      ]
+
+      ; Check hit on Skelly & nearby urns
+      let sk = find_nearest(skelly, radius: 3.1)
+      if sk [ send sk hit(dmg) ]
+
+      let u = find_nearest(urn, radius: 2.5)
+      if u [ send u hit(dmg) ]
+    ]
+
+    ; Cast Bloodstone Projectile (E or K)
+    if (key_pressed("e") or key_pressed("k")) and cast_cd <= 0 [
+      cast_cd = 0.45
+      play("examples/sfx/laser.wav", volume: 0.5, pitch: 0.65)
+      let bvx = -dsin(face_deg) * 13.0
+      let bvz = dcos(face_deg) * 13.0
+      spawn bloodstone here [
+        vx = bvx
+        vz = bvz
+      ]
+    ]
+
+    ; Smooth isometric camera tracking
+    cam_x = lerp(cam_x, x * 0.35, clamp(dt * 4.5, 0, 1))
+    cam_z = lerp(cam_z, z * 0.35, clamp(dt * 4.5, 0, 1))
+
+    ; Draw Zagreus (6 crisp 3D SDF prims)
+    let bob = abs(sin(walk_bob)) * 0.08
+    if mlen < 0.01 [ bob = 0 ]
+
+    ; Fiery Underworld footsteps glow
+    at x 0.06 z [
+      material emissive(#ff6a1a, strength: 1.9)
+      cylinder(radius: 0.36, height: 0.10)
+    ]
+
+    at x (0.68 + bob) z [
+      yaw face_deg
+
+      ; Dark obsidian armor torso
+      material glossy(#1b1724, rough: 0.35)
+      cylinder(radius: 0.32, height: 0.92)
+
+      ; Flowing crimson chiton cloak draped cleanly off the back
+      at x (0.62 + bob) z [
+        yaw face_deg
+        bk 0.20
+        pitch -20
+        material matte(#c81e32)
+        box(0.64, 0.78, 0.24)
+      ]
+
+      ; Head & glowing golden laurel crown
+      at x (1.36 + bob) z [
+        material matte(#f1d2b8)
+        sphere(0.26)
+        at x (1.50 + bob) z [
+          material emissive(#ffaa22, strength: 2.0)
+          torus(0.24, 0.055)
+        ]
+      ]
+
+      ; Stygian Blade in hand (rotates across body during slash!)
+      let blade_yaw = face_deg - 42
+      if swing_t > 0 [
+        let sp = 1.0 - (swing_t / 0.18)
+        blade_yaw = face_deg - 75 + sp * 150
+        if combo == 2 [ blade_yaw = face_deg + 75 - sp * 150 ]
+      ]
+      at x (0.85 + bob) z [
+        yaw blade_yaw
+        fd 0.35
+        material emissive(#ff3355, strength: 2.3)
+        capsule(1.18, 0.08)
+      ]
+    ]
+  end
+end
+
+; === SPAWN COURTYARD ACTORS ===
+spawn hero   [ x = -1.1  y = 0  z = 0.9 ]
+spawn skelly [ x = 1.35  y = 0  z = -0.65 ]
+spawn urn    [ x = 3.2   y = 0  z = 1.7 ]
+spawn urn    [ x = -2.9  y = 0  z = -2.2 ]
+
+; === STATIC COURTYARD ARCHITECTURE & ISOMETRIC CAMERA ===
+on frame(dt)
+  if shake > 0 [ shake = max(0, shake - dt * 1.4) ]
+  let sx = sin(time * 95) * shake
+  let sz = cos(time * 83) * shake
+
+  ; True pseudo-isometric camera (low 27 deg FOV from diagonal overhead!)
+  camera(
+    pos: [cam_x + 13.5 + sx, 11.8, cam_z + 13.5 + sz],
+    look: [cam_x + sx * 0.4, 0.85, cam_z + sz * 0.4],
+    fov: 27
+  )
+
+  ; 1. Tartarus Obsidian Courtyard Floor + Crimson Sparring Circle
+  at 0 -0.35 0 [
+    material matte(#231d2d)
+    box(11.8, 0.70, 11.8)
+  ]
+  at 0 -0.01 0 [
+    material glossy(#5e1b2d, rough: 0.45)
+    cylinder(radius: 3.15, height: 0.08)
+  ]
+
+  ; 2. Carved North Styx Archway Gate + Crimson Underworld Portal
+  at 0 1.80 -5.2 [
+    material matte(#31293f)
+    box(4.4, 3.6, 1.05)
+    carve [
+      at 0 0.70 -5.2 [ pitch 90  capsule(1.65, 0.88) ]
+    ]
+  ]
+  at 0 1.25 -5.45 [
+    material emissive(#ff1f44, strength: 1.85 + sin(time * 3.0) * 0.25)
+    box(1.65, 2.35, 0.16)
+  ]
+
+  ; 3. Three Back-Corner Greek Pillars (front corner open for clear isometric sightline)
+  at -5.1 1.9 -5.1 [
+    material matte(#3b324b)
+    cylinder(radius: 0.42, height: 3.8)
+    at -5.1 3.9 -5.1 [ box(1.15, 0.34, 1.15) ]
+  ]
+  at 5.1 1.9 -5.1 [
+    material matte(#3b324b)
+    cylinder(radius: 0.42, height: 3.8)
+    at 5.1 3.9 -5.1 [ box(1.15, 0.34, 1.15) ]
+  ]
+  at -5.1 1.9 5.1 [
+    material matte(#3b324b)
+    cylinder(radius: 0.42, height: 3.8)
+    at -5.1 3.9 5.1 [ box(1.15, 0.34, 1.15) ]
+  ]
+
+  ; 4. Twin Glowing Hades Emerald Braziers flanking the Styx Gate
+  let flame_r = 0.36 + sin(time * 7.5) * 0.05
+  at -2.9 0.45 -4.65 [
+    material glossy(#1f1a29, rough: 0.3)
+    cylinder(radius: 0.44, height: 0.90)
+    at -2.9 1.12 -4.65 [
+      material emissive(#2ee68a, strength: 2.3)
+      sphere(flame_r)
+    ]
+  ]
+  at 2.9 0.45 -4.65 [
+    material glossy(#1f1a29, rough: 0.3)
+    cylinder(radius: 0.44, height: 0.90)
+    at 2.9 1.12 -4.65 [
+      material emissive(#2ee68a, strength: 2.3)
+      sphere(flame_r)
+    ]
+  ]
+
+  ; 5. West Weapon Pedestal with Glowing Golden Eternal Spear
+  at -4.85 0.35 0.3 [
+    material matte(#3b324b)
+    box(1.1, 0.70, 1.8)
+    at -4.85 0.75 0.3 [
+      pitch 76
+      yaw 25
+      material emissive(#fbbf24, strength: 1.65)
+      capsule(2.1, 0.075)
+    ]
+  ]
+end

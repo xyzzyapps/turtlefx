@@ -432,6 +432,7 @@ typedef struct {
     ActorInstance actors[LOGO_MAX_ACTORS_LIVE];
     uint32_t next_actor_handle;
     int current_actor; /* -1 when running global code */
+    int spawner_actor; /* -1 unless inside spawn [...] init block */
     ActorMessage msg_queue[LOGO_MAX_MESSAGES];
     int msg_count;
 
