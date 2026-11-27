@@ -1,0 +1,75 @@
+name: Build WASM & Deploy GitHub Pages
+
+on:
+  push:
+    branches: ["main"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout TurtleFX
+        uses: actions/checkout@v4
+
+      - name: Setup Emscripten SDK
+        uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: "3.1.74"
+
+      - name: Build raylib 5.5 for WebAssembly (WebGL 2.0 / ES3)
+        run: |
+          git clone --depth 1 --branch 5.5 https://github.com/raysan5/raylib.git /tmp/raylib
+          cd /tmp/raylib/src
+          emmake make PLATFORM=PLATFORM_WEB GRAPHICS=GRAPHICS_API_OPENGL_ES3 -j$(nproc)
+          ls -lh libraylib*.a
+
+      - name: Compile TurtleFX to WebAssembly
+        run: |
+          mkdir -p docs/wasm docs/examples
+          cp examples/*.logo docs/examples/
+          RAYLIB_LIB=$(ls /tmp/raylib/src/libraylib*.a | head -n 1)
+          echo "Using raylib static lib: $RAYLIB_LIB"
+          emcc -std=c11 -O2 -Wall -Wextra -Wno-unused-parameter \
+            src/main.c src/logo_parser.c src/logo_vm.c src/renderer.c \
+            -Isrc -I/tmp/raylib/src \
+            "$RAYLIB_LIB" \
+            -DPLATFORM_WEB -DGRAPHICS_API_OPENGL_ES3 \
+            -sUSE_GLFW=3 \
+            -sUSE_WEBGL2=1 \
+            -sFULL_ES3=1 \
+            -sALLOW_MEMORY_GROWTH=1 \
+            -sINITIAL_MEMORY=67108864 \
+            -sEXPORTED_RUNTIME_METHODS=ccall,cwrap,UTF8ToString \
+            -sEXPORTED_FUNCTIONS=_main,_wasm_load_example,_wasm_run_code,_wasm_set_debug,_wasm_debug_cmd,_wasm_set_input_enabled,_wasm_get_debug_enabled,_wasm_get_error,_malloc,_free \
+            --preload-file examples@examples \
+            -o docs/wasm/turtlefx.js
+          ls -lh docs/wasm/
+
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload Pages Artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs
+
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

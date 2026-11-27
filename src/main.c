@@ -9,6 +9,15 @@
 #include <string.h>
 #include <sys/stat.h>
 
+#ifdef __EMSCRIPTEN__
+#include <emscripten/emscripten.h>
+#define WASM_EXPORT EMSCRIPTEN_KEEPALIVE
+#else
+#define WASM_EXPORT
+#endif
+
+static bool g_input_enabled = true;
+
 static const char *BUILTIN_EXAMPLES[] = {
     "examples/01_retro_arcade.logo",
     "examples/02_neon_2d.logo",
@@ -82,6 +91,7 @@ static int map_key_name(const char *name) {
 }
 
 static bool host_is_key_down(const char *name) {
+    if (!g_input_enabled) return false;
     int k = map_key_name(name);
     if (k == KEY_LEFT)  return IsKeyDown(KEY_LEFT)  || IsKeyDown(KEY_A);
     if (k == KEY_RIGHT) return IsKeyDown(KEY_RIGHT) || IsKeyDown(KEY_D);
@@ -91,6 +101,7 @@ static bool host_is_key_down(const char *name) {
 }
 
 static bool host_is_key_pressed(const char *name) {
+    if (!g_input_enabled) return false;
     int k = map_key_name(name);
     return k ? IsKeyPressed(k) : false;
 }
@@ -118,6 +129,7 @@ static time_t file_mtime(const char *path) {
 typedef struct {
     char path[512];
     time_t mtime;
+    bool is_memory_script;
     LogoProgram *prog;
     LogoVM *vm;
     double elapsed;
@@ -127,6 +139,34 @@ typedef struct {
 static void session_free(ScriptSession *sess) {
     if (sess->prog) { logo_program_free(sess->prog); sess->prog = NULL; }
     if (sess->vm)   { free(sess->vm); sess->vm = NULL; }
+}
+
+static bool session_load_source(ScriptSession *sess, const char *label, const char *src, LogoHostInput input) {
+    if (sess->prog) {
+        logo_program_free(sess->prog);
+        sess->prog = NULL;
+    }
+    if (!sess->vm) sess->vm = (LogoVM *)calloc(1, sizeof(LogoVM));
+    else memset(sess->vm, 0, sizeof(LogoVM));
+    sess->load_err[0] = '\0';
+    snprintf(sess->path, sizeof(sess->path), "%s", label ? label : "editor.logo");
+    sess->mtime = 0;
+    sess->is_memory_script = true;
+    sess->elapsed = 0.0;
+
+    sess->prog = logo_parse(src ? src : "");
+    if (sess->prog->has_error) {
+        snprintf(sess->load_err, sizeof(sess->load_err), "%s", sess->prog->error);
+        return false;
+    }
+
+    logo_vm_init(sess->vm, sess->prog);
+    logo_vm_run_init(sess->vm, input);
+    if (sess->vm->has_error) {
+        snprintf(sess->load_err, sizeof(sess->load_err), "%s", sess->vm->error);
+        return false;
+    }
+    return true;
 }
 
 static bool session_load(ScriptSession *sess, const char *path, LogoHostInput input) {
@@ -139,6 +179,7 @@ static bool session_load(ScriptSession *sess, const char *path, LogoHostInput in
     sess->load_err[0] = '\0';
     strncpy(sess->path, path, sizeof(sess->path) - 1);
     sess->mtime = file_mtime(path);
+    sess->is_memory_script = false;
     sess->elapsed = 0.0;
 
     char *src = read_entire_file(path);
@@ -951,7 +992,254 @@ static int run_make_media(void) {
     return 0;
 }
 
+/* ============================================================================
+ *  Shared Interactive App State (Desktop Loop + Emscripten/WASM Main Loop)
+ * ============================================================================ */
+
+typedef struct {
+    LogoRenderer renderer;
+    LogoHostInput input;
+    ScriptSession sess;
+    SceneIR *debug_scene;
+    DebugState dbg;
+    DebugCursorInfo dbg_cur;
+    bool show_hud;
+    double watch_timer;
+    int screenshot_seq;
+    double screenshot_msg_timer;
+    char screenshot_msg[128];
+    bool first_debug_frame;
+    bool pending_step_frame;
+    bool initialized;
+} AppState;
+
+static AppState g_app;
+
+WASM_EXPORT void wasm_set_input_enabled(int enabled) {
+    g_input_enabled = (enabled != 0);
+}
+
+WASM_EXPORT void wasm_load_example(int idx) {
+    if (!g_app.initialized) return;
+    if (idx < 0 || idx >= NUM_EXAMPLES) return;
+    g_app.input.view_w = GetScreenWidth();
+    g_app.input.view_h = GetScreenHeight();
+    session_load(&g_app.sess, BUILTIN_EXAMPLES[idx], g_app.input);
+    debug_reset_playback(&g_app.dbg);
+    g_app.first_debug_frame = true;
+}
+
+WASM_EXPORT void wasm_run_code(const char *code) {
+    if (!g_app.initialized || !code) return;
+    g_app.input.view_w = GetScreenWidth();
+    g_app.input.view_h = GetScreenHeight();
+    session_load_source(&g_app.sess, "live_editor.logo", code, g_app.input);
+    debug_reset_playback(&g_app.dbg);
+    g_app.first_debug_frame = true;
+}
+
+WASM_EXPORT void wasm_set_debug(int enabled) {
+    if (!g_app.initialized) return;
+    g_app.dbg.enabled = (enabled != 0);
+    if (g_app.dbg.enabled) {
+        g_app.dbg.paused = false;
+        g_app.dbg.sim_time = g_app.sess.elapsed;
+        g_app.dbg.draw_step_f = 0.0;
+        g_app.first_debug_frame = true;
+    }
+}
+
+WASM_EXPORT void wasm_debug_cmd(int cmd) {
+    if (!g_app.initialized) return;
+    if (!g_app.dbg.enabled) wasm_set_debug(1);
+    switch (cmd) {
+        case 0: g_app.dbg.paused = !g_app.dbg.paused; break;
+        case 1: g_app.dbg.paused = true; g_app.dbg.draw_step_f = fmax(0.0, floor(g_app.dbg.draw_step_f) - 1.0); break;
+        case 2: g_app.dbg.paused = true; g_app.dbg.draw_step_f = floor(g_app.dbg.draw_step_f) + 1.0; break;
+        case 3: g_app.dbg.paused = true; g_app.pending_step_frame = true; break;
+        case 4: g_app.dbg.sim_scale = fmax(g_app.dbg.sim_scale / 1.5, 0.02); g_app.dbg.draw_rate = fmax(g_app.dbg.draw_rate / 1.4, 0.5); break;
+        case 5: g_app.dbg.sim_scale = fmin(g_app.dbg.sim_scale * 1.5, 2.0);  g_app.dbg.draw_rate = fmin(g_app.dbg.draw_rate * 1.4, 60.0); break;
+        case 6: g_app.dbg.draw_step_f = 0.0; g_app.dbg.paused = false; break;
+        default: break;
+    }
+}
+
+WASM_EXPORT int wasm_get_debug_enabled(void) {
+    return g_app.dbg.enabled ? 1 : 0;
+}
+
+WASM_EXPORT const char *wasm_get_error(void) {
+    return g_app.sess.load_err;
+}
+
+static void update_draw_frame(void) {
+    float dt_real = GetFrameTime();
+    if (dt_real > 0.05f) dt_real = 0.05f;
+    if (g_app.screenshot_msg_timer > 0.0) g_app.screenshot_msg_timer -= dt_real;
+
+    g_app.input.view_w = GetScreenWidth();
+    g_app.input.view_h = GetScreenHeight();
+    g_app.input.mouse_x = (float)GetMouseX();
+    g_app.input.mouse_y = (float)GetMouseY();
+
+    bool reloaded = false;
+    bool want_screenshot = false;
+    if (g_input_enabled) {
+        if (IsKeyPressed(KEY_ONE))   { session_load(&g_app.sess, BUILTIN_EXAMPLES[0], g_app.input); reloaded = true; }
+        if (IsKeyPressed(KEY_TWO))   { session_load(&g_app.sess, BUILTIN_EXAMPLES[1], g_app.input); reloaded = true; }
+        if (IsKeyPressed(KEY_THREE)) { session_load(&g_app.sess, BUILTIN_EXAMPLES[2], g_app.input); reloaded = true; }
+        if (IsKeyPressed(KEY_FOUR))  { session_load(&g_app.sess, BUILTIN_EXAMPLES[3], g_app.input); reloaded = true; }
+        if (IsKeyPressed(KEY_FIVE))  { session_load(&g_app.sess, BUILTIN_EXAMPLES[4], g_app.input); reloaded = true; }
+        if (IsKeyPressed(KEY_SIX))   { session_load(&g_app.sess, BUILTIN_EXAMPLES[5], g_app.input); reloaded = true; }
+        if (IsKeyPressed(KEY_SEVEN)) { session_load(&g_app.sess, BUILTIN_EXAMPLES[6], g_app.input); reloaded = true; }
+        if (IsKeyPressed(KEY_R) && !g_app.sess.is_memory_script) {
+            session_load(&g_app.sess, g_app.sess.path, g_app.input);
+            reloaded = true;
+        }
+        if (IsKeyPressed(KEY_H)) g_app.show_hud = !g_app.show_hud;
+        if (IsKeyPressed(KEY_F5)) {
+            wasm_set_debug(!g_app.dbg.enabled);
+        }
+#ifndef __EMSCRIPTEN__
+        want_screenshot = IsKeyPressed(KEY_F12) || IsKeyPressed(KEY_P);
+#endif
+    }
+
+#ifndef __EMSCRIPTEN__
+    /* Hot-reload watched .logo file on save (desktop only) */
+    if (!g_app.sess.is_memory_script) {
+        g_app.watch_timer += dt_real;
+        if (g_app.watch_timer >= 0.3) {
+            g_app.watch_timer = 0.0;
+            time_t mt = file_mtime(g_app.sess.path);
+            if (mt != 0 && mt != g_app.sess.mtime) {
+                session_load(&g_app.sess, g_app.sess.path, g_app.input);
+                reloaded = true;
+            }
+        }
+    }
+#endif
+    if (reloaded) {
+        debug_reset_playback(&g_app.dbg);
+        g_app.first_debug_frame = true;
+    }
+
+    /* Interactive Debug Mode Controls */
+    bool step_one_frame = g_app.pending_step_frame;
+    g_app.pending_step_frame = false;
+    if (g_app.dbg.enabled && g_input_enabled) {
+        if (IsKeyPressed(KEY_TAB))       wasm_debug_cmd(0);
+        if (IsKeyPressed(KEY_BACKSPACE)) wasm_debug_cmd(6);
+        if (IsKeyPressed(KEY_EQUAL) || IsKeyPressed(KEY_KP_ADD) || IsKeyPressed(KEY_RIGHT_BRACKET)) wasm_debug_cmd(5);
+        if (IsKeyPressed(KEY_MINUS) || IsKeyPressed(KEY_KP_SUBTRACT) || IsKeyPressed(KEY_LEFT_BRACKET)) wasm_debug_cmd(4);
+        if (IsKeyPressed(KEY_PERIOD))    wasm_debug_cmd(2);
+        if (IsKeyPressed(KEY_COMMA))     wasm_debug_cmd(1);
+        if (IsKeyPressed(KEY_N))         { g_app.dbg.paused = true; step_one_frame = true; }
+    }
+
+    double run_dt = dt_real;
+    bool should_step_vm = true;
+    if (g_app.dbg.enabled) {
+        g_app.dbg.last_dt_real = dt_real;
+        if (step_one_frame) {
+            run_dt = 1.0 / 60.0;
+            g_app.dbg.sim_time += run_dt;
+            g_app.dbg.sim_frame++;
+            g_app.dbg.last_dt_sim = run_dt;
+            g_app.sess.elapsed = g_app.dbg.sim_time;
+        } else if (!g_app.dbg.paused) {
+            run_dt = dt_real * g_app.dbg.sim_scale;
+            g_app.dbg.sim_time += run_dt;
+            g_app.dbg.sim_frame++;
+            g_app.dbg.last_dt_sim = run_dt;
+            g_app.sess.elapsed = g_app.dbg.sim_time;
+            g_app.dbg.draw_step_f += dt_real * g_app.dbg.draw_rate;
+        } else {
+            g_app.dbg.last_dt_sim = 0.0;
+            should_step_vm = g_app.first_debug_frame;
+            run_dt = 0.0;
+        }
+        g_app.first_debug_frame = false;
+    } else {
+        g_app.sess.elapsed += dt_real;
+        g_app.dbg.sim_time = g_app.sess.elapsed;
+        g_app.dbg.sim_frame++;
+    }
+
+    bool has_err = (g_app.sess.load_err[0] != '\0') || !g_app.sess.vm || g_app.sess.vm->has_error;
+    if (!has_err && should_step_vm) {
+        logo_vm_run_frame(g_app.sess.vm, g_app.sess.elapsed, run_dt, g_app.input);
+        if (g_app.sess.vm->has_error) {
+            snprintf(g_app.sess.load_err, sizeof(g_app.sess.load_err), "%s", g_app.sess.vm->error);
+            has_err = true;
+        }
+    }
+
+    const SceneIR *scene_to_draw = NULL;
+    if (!has_err) {
+        if (g_app.dbg.enabled && g_app.debug_scene) {
+            debug_record_frame_msgs(&g_app.dbg, &g_app.sess.vm->scene, dt_real, should_step_vm);
+            if (g_app.dbg.draw_step_f > (double)g_app.sess.vm->scene.total_draw_ops) {
+                g_app.dbg.draw_step_f = (double)g_app.sess.vm->scene.total_draw_ops;
+            }
+            build_debug_scene_slice(&g_app.sess.vm->scene, g_app.debug_scene, g_app.dbg.draw_step_f, &g_app.dbg_cur);
+            scene_to_draw = g_app.debug_scene;
+        } else {
+            scene_to_draw = &g_app.sess.vm->scene;
+        }
+    }
+
+    BeginDrawing();
+        ClearBackground((Color){12, 14, 22, 255});
+
+        if (!has_err && scene_to_draw) {
+            renderer_draw(&g_app.renderer, scene_to_draw, g_app.input.view_w, g_app.input.view_h, g_app.sess.elapsed);
+            if (g_app.dbg.enabled) {
+                draw_debug_overlays(&g_app.sess.vm->scene, &g_app.dbg, &g_app.dbg_cur, g_app.input.view_w, g_app.input.view_h);
+            }
+        } else {
+            DrawRectangle(40, 80, g_app.input.view_w - 80, 120, (Color){60, 16, 24, 230});
+            DrawRectangleLines(40, 80, g_app.input.view_w - 80, 120, (Color){240, 80, 96, 255});
+            DrawText("LOGO SCRIPT ERROR", 60, 98, 22, (Color){255, 130, 140, 255});
+            DrawText(g_app.sess.load_err, 60, 132, 18, WHITE);
+            DrawText("Fix the script and save to hot-reload (or press 1-7).", 60, 164, 15, LIGHTGRAY);
+        }
+
+        if (g_app.show_hud && g_app.sess.vm) {
+            const SceneIR *sc = &g_app.sess.vm->scene;
+            int prims = (sc->mode == RENDER_MODE_3D) ? sc->prim3d_count : sc->prim2d_count;
+            int hud_w = (g_app.input.view_w - 24 < 1020) ? (g_app.input.view_w - 24) : 1020;
+            DrawRectangle(12, 12, hud_w, 56, (Color){8, 10, 18, 195});
+            DrawRectangleLines(12, 12, hud_w, 56, (Color){70, 90, 130, 180});
+
+            char line1[256];
+            snprintf(line1, sizeof(line1), "TurtleFX%s  |  %.110s  |  Mode: %s  |  Prims: %d  |  %d FPS",
+                     g_app.dbg.enabled ? " [DEBUG]" : "", g_app.sess.path, mode_name(sc->mode), prims, GetFPS());
+            DrawText(line1, 24, 20, 16, (Color){230, 240, 255, 255});
+            DrawText("[1] Retro [2] 2D [3] 3D [4] Retro3D [5] Shader [6] Actors [7] Hades Iso  [F5] Debug [R] Reload [H] HUD [F12] Shot",
+                     24, 44, 13, (Color){155, 175, 210, 255});
+        }
+
+        if (g_app.screenshot_msg_timer > 0.0) {
+            DrawRectangle(12, 76, 320, 28, (Color){16, 48, 32, 220});
+            DrawRectangleLines(12, 76, 320, 28, (Color){64, 220, 130, 255});
+            DrawText(g_app.screenshot_msg, 22, 83, 14, (Color){180, 255, 210, 255});
+        }
+    EndDrawing();
+
+#ifndef __EMSCRIPTEN__
+    if (want_screenshot) {
+        char spath[64];
+        snprintf(spath, sizeof(spath), "screenshot_%03d.png", g_app.screenshot_seq++);
+        TakeScreenshot(spath);
+        snprintf(g_app.screenshot_msg, sizeof(g_app.screenshot_msg), "Saved %s", spath);
+        g_app.screenshot_msg_timer = 2.5;
+    }
+#endif
+}
+
 int main(int argc, char **argv) {
+#ifndef __EMSCRIPTEN__
     if (argc >= 2 && strcmp(argv[1], "--verify") == 0) {
         return run_verify_mode(argc, argv);
     }
@@ -961,10 +1249,15 @@ int main(int argc, char **argv) {
     if (argc >= 2 && strcmp(argv[1], "--make-media") == 0) {
         return run_make_media();
     }
+#endif
 
     bool start_debug = false;
     double initial_sim_scale = 0.15;
+#ifdef __EMSCRIPTEN__
+    const char *initial_script = BUILTIN_EXAMPLES[6];
+#else
     const char *initial_script = BUILTIN_EXAMPLES[0];
+#endif
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "-debug") == 0 || strcmp(argv[i], "--debug") == 0) {
             start_debug = true;
@@ -977,17 +1270,24 @@ int main(int argc, char **argv) {
         }
     }
 
+    memset(&g_app, 0, sizeof(g_app));
+
+#ifdef __EMSCRIPTEN__
+    InitWindow(960, 540, "TurtleFX — WebAssembly Live Engine");
+    g_app.show_hud = false;
+#else
     SetConfigFlags(FLAG_WINDOW_RESIZABLE | FLAG_VSYNC_HINT);
     InitWindow(1280, 720, start_debug
         ? "TurtleFX [DEBUG] — Slow Turtle & Simulated Clock"
         : "TurtleFX — Modern Logo Shader Engine (C + raylib)");
+    g_app.show_hud = true;
+#endif
     InitAudioDevice();
     SetTargetFPS(60);
 
-    LogoRenderer renderer;
-    renderer_init(&renderer);
+    renderer_init(&g_app.renderer);
 
-    LogoHostInput input = {
+    g_app.input = (LogoHostInput){
         .is_key_down = host_is_key_down,
         .is_key_pressed = host_is_key_pressed,
         .play_sound = host_play_sound,
@@ -997,11 +1297,10 @@ int main(int argc, char **argv) {
         .view_h = GetScreenHeight()
     };
 
-    ScriptSession sess = {0};
-    session_load(&sess, initial_script, input);
+    session_load(&g_app.sess, initial_script, g_app.input);
 
-    SceneIR *debug_scene = (SceneIR *)malloc(sizeof(SceneIR));
-    DebugState dbg = {
+    g_app.debug_scene = (SceneIR *)malloc(sizeof(SceneIR));
+    g_app.dbg = (DebugState){
         .enabled = start_debug,
         .paused = false,
         .sim_time = 0.0,
@@ -1012,195 +1311,23 @@ int main(int argc, char **argv) {
         .draw_step_f = 0.0,
         .draw_rate = 6.0
     };
-    DebugCursorInfo dbg_cur = {0};
+    g_app.screenshot_seq = 1;
+    g_app.first_debug_frame = true;
+    g_app.initialized = true;
 
-    bool show_hud = true;
-    double watch_timer = 0.0;
-    int screenshot_seq = 1;
-    double screenshot_msg_timer = 0.0;
-    char screenshot_msg[128] = {0};
-    bool first_debug_frame = true;
-
+#ifdef __EMSCRIPTEN__
+    emscripten_set_main_loop(update_draw_frame, 0, 1);
+#else
     while (!WindowShouldClose()) {
-        float dt_real = GetFrameTime();
-        if (dt_real > 0.05f) dt_real = 0.05f;
-        if (screenshot_msg_timer > 0.0) screenshot_msg_timer -= dt_real;
-
-        input.view_w = GetScreenWidth();
-        input.view_h = GetScreenHeight();
-        input.mouse_x = (float)GetMouseX();
-        input.mouse_y = (float)GetMouseY();
-
-        /* Built-in example switching (1-7), manual reload (R), HUD toggle (H), Debug (F5), Shot (F12/P) */
-        bool reloaded = false;
-        if (IsKeyPressed(KEY_ONE))   { session_load(&sess, BUILTIN_EXAMPLES[0], input); reloaded = true; }
-        if (IsKeyPressed(KEY_TWO))   { session_load(&sess, BUILTIN_EXAMPLES[1], input); reloaded = true; }
-        if (IsKeyPressed(KEY_THREE)) { session_load(&sess, BUILTIN_EXAMPLES[2], input); reloaded = true; }
-        if (IsKeyPressed(KEY_FOUR))  { session_load(&sess, BUILTIN_EXAMPLES[3], input); reloaded = true; }
-        if (IsKeyPressed(KEY_FIVE))  { session_load(&sess, BUILTIN_EXAMPLES[4], input); reloaded = true; }
-        if (IsKeyPressed(KEY_SIX))   { session_load(&sess, BUILTIN_EXAMPLES[5], input); reloaded = true; }
-        if (IsKeyPressed(KEY_SEVEN)) { session_load(&sess, BUILTIN_EXAMPLES[6], input); reloaded = true; }
-        if (IsKeyPressed(KEY_R))     { session_load(&sess, sess.path, input);           reloaded = true; }
-        if (IsKeyPressed(KEY_H))     show_hud = !show_hud;
-        if (IsKeyPressed(KEY_F5)) {
-            dbg.enabled = !dbg.enabled;
-            if (dbg.enabled) {
-                dbg.paused = false;
-                dbg.sim_time = sess.elapsed;
-                dbg.draw_step_f = 0.0;
-                first_debug_frame = true;
-            }
-        }
-        bool want_screenshot = IsKeyPressed(KEY_F12) || IsKeyPressed(KEY_P);
-
-        /* Hot-reload watched .logo file on save */
-        watch_timer += dt_real;
-        if (watch_timer >= 0.3) {
-            watch_timer = 0.0;
-            time_t mt = file_mtime(sess.path);
-            if (mt != 0 && mt != sess.mtime) {
-                session_load(&sess, sess.path, input);
-                reloaded = true;
-            }
-        }
-        if (reloaded) {
-            debug_reset_playback(&dbg);
-            first_debug_frame = true;
-        }
-
-        /* Interactive Debug Mode Controls */
-        bool step_one_frame = false;
-        if (dbg.enabled) {
-            if (IsKeyPressed(KEY_TAB)) dbg.paused = !dbg.paused;
-            if (IsKeyPressed(KEY_BACKSPACE)) {
-                dbg.draw_step_f = 0.0;
-                dbg.paused = false;
-            }
-            if (IsKeyPressed(KEY_EQUAL) || IsKeyPressed(KEY_KP_ADD) || IsKeyPressed(KEY_RIGHT_BRACKET)) {
-                dbg.sim_scale = fmin(dbg.sim_scale * 1.5, 2.0);
-                dbg.draw_rate = fmin(dbg.draw_rate * 1.4, 60.0);
-            }
-            if (IsKeyPressed(KEY_MINUS) || IsKeyPressed(KEY_KP_SUBTRACT) || IsKeyPressed(KEY_LEFT_BRACKET)) {
-                dbg.sim_scale = fmax(dbg.sim_scale / 1.5, 0.02);
-                dbg.draw_rate = fmax(dbg.draw_rate / 1.4, 0.5);
-            }
-            if (IsKeyPressed(KEY_PERIOD)) {
-                dbg.paused = true;
-                dbg.draw_step_f = floor(dbg.draw_step_f) + 1.0;
-            }
-            if (IsKeyPressed(KEY_COMMA)) {
-                dbg.paused = true;
-                dbg.draw_step_f = fmax(0.0, floor(dbg.draw_step_f) - 1.0);
-            }
-            if (IsKeyPressed(KEY_N)) {
-                dbg.paused = true;
-                step_one_frame = true;
-            }
-        }
-
-        double run_dt = dt_real;
-        bool should_step_vm = true;
-        if (dbg.enabled) {
-            dbg.last_dt_real = dt_real;
-            if (step_one_frame) {
-                run_dt = 1.0 / 60.0;
-                dbg.sim_time += run_dt;
-                dbg.sim_frame++;
-                dbg.last_dt_sim = run_dt;
-                sess.elapsed = dbg.sim_time;
-            } else if (!dbg.paused) {
-                run_dt = dt_real * dbg.sim_scale;
-                dbg.sim_time += run_dt;
-                dbg.sim_frame++;
-                dbg.last_dt_sim = run_dt;
-                sess.elapsed = dbg.sim_time;
-                dbg.draw_step_f += dt_real * dbg.draw_rate;
-            } else {
-                dbg.last_dt_sim = 0.0;
-                should_step_vm = first_debug_frame;
-                run_dt = 0.0;
-            }
-            first_debug_frame = false;
-        } else {
-            sess.elapsed += dt_real;
-            dbg.sim_time = sess.elapsed;
-            dbg.sim_frame++;
-        }
-
-        bool has_err = (sess.load_err[0] != '\0') || !sess.vm || sess.vm->has_error;
-        if (!has_err && should_step_vm) {
-            logo_vm_run_frame(sess.vm, sess.elapsed, run_dt, input);
-            if (sess.vm->has_error) {
-                snprintf(sess.load_err, sizeof(sess.load_err), "%s", sess.vm->error);
-                has_err = true;
-            }
-        }
-
-        const SceneIR *scene_to_draw = NULL;
-        if (!has_err) {
-            if (dbg.enabled && debug_scene) {
-                debug_record_frame_msgs(&dbg, &sess.vm->scene, dt_real, should_step_vm);
-                if (dbg.draw_step_f > (double)sess.vm->scene.total_draw_ops) {
-                    dbg.draw_step_f = (double)sess.vm->scene.total_draw_ops;
-                }
-                build_debug_scene_slice(&sess.vm->scene, debug_scene, dbg.draw_step_f, &dbg_cur);
-                scene_to_draw = debug_scene;
-            } else {
-                scene_to_draw = &sess.vm->scene;
-            }
-        }
-
-        BeginDrawing();
-            ClearBackground((Color){12, 14, 22, 255});
-
-            if (!has_err && scene_to_draw) {
-                renderer_draw(&renderer, scene_to_draw, input.view_w, input.view_h, sess.elapsed);
-                if (dbg.enabled) {
-                    draw_debug_overlays(&sess.vm->scene, &dbg, &dbg_cur, input.view_w, input.view_h);
-                }
-            } else {
-                DrawRectangle(40, 80, input.view_w - 80, 120, (Color){60, 16, 24, 230});
-                DrawRectangleLines(40, 80, input.view_w - 80, 120, (Color){240, 80, 96, 255});
-                DrawText("LOGO SCRIPT ERROR", 60, 98, 22, (Color){255, 130, 140, 255});
-                DrawText(sess.load_err, 60, 132, 18, WHITE);
-                DrawText("Fix the script and save to hot-reload (or press 1-7).", 60, 164, 15, LIGHTGRAY);
-            }
-
-            if (show_hud && sess.vm) {
-                const SceneIR *sc = &sess.vm->scene;
-                int prims = (sc->mode == RENDER_MODE_3D) ? sc->prim3d_count : sc->prim2d_count;
-                DrawRectangle(12, 12, 1020, 56, (Color){8, 10, 18, 195});
-                DrawRectangleLines(12, 12, 1020, 56, (Color){70, 90, 130, 180});
-
-                char line1[256];
-                snprintf(line1, sizeof(line1), "TurtleFX%s  |  %.110s  |  Mode: %s  |  Prims: %d  |  %d FPS",
-                         dbg.enabled ? " [DEBUG]" : "", sess.path, mode_name(sc->mode), prims, GetFPS());
-                DrawText(line1, 24, 20, 16, (Color){230, 240, 255, 255});
-                DrawText("[1] Retro [2] 2D [3] 3D [4] Retro3D [5] Shader [6] Actors [7] Hades Iso  [F5] Debug [R] Reload [H] HUD [F12] Shot",
-                         24, 44, 13, (Color){155, 175, 210, 255});
-            }
-
-            if (screenshot_msg_timer > 0.0) {
-                DrawRectangle(12, 76, 320, 28, (Color){16, 48, 32, 220});
-                DrawRectangleLines(12, 76, 320, 28, (Color){64, 220, 130, 255});
-                DrawText(screenshot_msg, 22, 83, 14, (Color){180, 255, 210, 255});
-            }
-        EndDrawing();
-
-        if (want_screenshot) {
-            char spath[64];
-            snprintf(spath, sizeof(spath), "screenshot_%03d.png", screenshot_seq++);
-            TakeScreenshot(spath);
-            snprintf(screenshot_msg, sizeof(screenshot_msg), "Saved %s", spath);
-            screenshot_msg_timer = 2.5;
-        }
+        update_draw_frame();
     }
 
-    free(debug_scene);
-    session_free(&sess);
+    free(g_app.debug_scene);
+    session_free(&g_app.sess);
     host_unload_sounds();
-    renderer_shutdown(&renderer);
+    renderer_shutdown(&g_app.renderer);
     CloseAudioDevice();
     CloseWindow();
+#endif
     return 0;
 }

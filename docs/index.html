@@ -27,16 +27,16 @@
   <header id="top" class="hero">
     <div class="container hero-grid">
       <div>
-        <div class="kicker">C11 + raylib 5.5 + OpenGL 3.3 • Made with Gemini Neon</div>
+        <div class="kicker">C11 + raylib 5.5 + OpenGL 3.3 / WebAssembly WebGL 2 • Made with Gemini Neon</div>
         <h1>Build <em>Retro, 2D &amp; 3D</em> Games Without Writing Shader Math</h1>
         <p class="lead">
           GPU shaders make games glow, bend, and raymarch 3D worlds at 60 FPS — but raw GLSL math is steep.
           <strong>TurtleFX</strong> lets you drive a hidden shader pipeline with <strong>Modern Logo</strong>: readable commands like
-          <code>fd 50</code>, <code>rt 90</code>, and <code>fx bloom(...)</code>.
+          <code>fd 50</code>, <code>carve</code>, <code>actor</code>, <code>sprite</code>, and <code>model</code> — compiled right to <strong>WebAssembly</strong> below!
         </p>
         <div class="hero-actions">
-          <a class="btn primary" href="#playground">Open Browser Sandbox ↓</a>
-          <a class="btn secondary" href="#mission-1">Start Mission 01</a>
+          <a class="btn primary" href="#playground">Play Live WASM Studio ↓</a>
+          <button class="btn secondary" data-launch-debug="6">Watch Hades in -debug Slow-Mo</button>
           <a class="btn secondary" href="language.html">Language Spec →</a>
         </div>
       </div>
@@ -50,34 +50,77 @@
   </header>
 
   <main class="container">
-    <!-- LIVE BROWSER SANDBOX -->
+    <!-- LIVE WEBASSEMBLY + WEBGL 2.0 ENGINE STUDIO -->
     <section id="playground" class="band">
       <div class="section-head">
         <div>
-          <div class="section-index">00 / LIVE SANDBOX</div>
-          <h2>Try Modern Logo in Your Browser</h2>
-          <p>Edit the code on the left and watch the turtle draw live at 60 FPS. No install needed for 2D &amp; Retro.</p>
-        </div>
-        <div class="preset-row" role="tablist" aria-label="Sandbox presets">
-          <button class="preset-btn active" data-preset="star">Neon Star</button>
-          <button class="preset-btn" data-preset="spiral">Spiral</button>
-          <button class="preset-btn" data-preset="ship">Retro Ship</button>
-          <button class="preset-btn" data-preset="mandala">Mandala</button>
+          <div class="section-index">00 / LIVE WEBASSEMBLY STUDIO (C11 + RAYLIB 5.5 + WEBGL 2.0)</div>
+          <h2>Play All 7 Demos &amp; the Slow-Motion Turtle Debugger Live</h2>
+          <p>
+            This is the <strong>real C11 + raylib engine compiled to WebAssembly</strong> — running 3D SDF raymarching,
+            <code>.obj</code> models, 2.5D sprites, custom GLSL shaders, Actors, and <code>-debug</code> slow-motion playback directly in your browser.
+          </p>
         </div>
       </div>
 
-      <div class="playground-grid">
-        <div class="editor-wrap">
-          <textarea id="code-editor" spellcheck="false" aria-label="Logo code editor"></textarea>
-          <div class="editor-bar">
-            <span id="pg-status" class="status-ok">Running at 60 FPS</span>
-            <button id="reset-btn" class="btn small">Reset</button>
-          </div>
+      <!-- 7 Built-in Examples Selector -->
+      <div class="wasm-bar" role="tablist" aria-label="Live WASM demos">
+        <button class="preset-btn" data-demo="0">1. Retro Arcade</button>
+        <button class="preset-btn" data-demo="1">2. Neon 2D</button>
+        <button class="preset-btn" data-demo="2">3. 3D Crystal Tree</button>
+        <button class="preset-btn" data-demo="3">4. GameBoy 3D</button>
+        <button class="preset-btn" data-demo="4">5. Custom GLSL</button>
+        <button class="preset-btn" data-demo="5">6. Actor Swarm</button>
+        <button class="preset-btn active" data-demo="6">7. Hades Courtyard</button>
+      </div>
+
+      <!-- Interactive -debug Slow-Motion & Simulated Clock Controls -->
+      <div class="debug-toolbar">
+        <button id="btn-debug-toggle" class="btn small debug-toggle">Slow-Mo Debug (-debug)</button>
+        <div id="debug-controls" class="debug-step-group">
+          <button class="btn small" data-dbg-cmd="0" title="Pause / Resume Simulated Clock (Tab)">Pause / Play</button>
+          <button class="btn small" data-dbg-cmd="1" title="Step 1 Turtle Draw Op Back (,)">◀ Op</button>
+          <button class="btn small" data-dbg-cmd="2" title="Step 1 Turtle Draw Op Forward (.)">Op ▶</button>
+          <button class="btn small" data-dbg-cmd="3" title="Advance +1 Simulated Frame (N)">+1 Frame</button>
+          <button class="btn small" data-dbg-cmd="4" title="Slower (-)">Slower</button>
+          <button class="btn small" data-dbg-cmd="5" title="Faster (+)">Faster</button>
+          <button class="btn small" data-dbg-cmd="6" title="Replay Turtle Drawing from Step 0 (Backspace)">Replay Draw</button>
         </div>
-        <div class="canvas-wrap">
-          <canvas id="pg-canvas" width="520" height="380"></canvas>
+        <div class="debug-quick-links">
+          <span class="subtle-label">Quick Debug:</span>
+          <button class="link-btn" data-launch-debug="1">2D Strokes</button>
+          <button class="link-btn" data-launch-debug="2">3D Tree</button>
+          <button class="link-btn" data-launch-debug="5">Actor Swarm</button>
+          <button class="link-btn" data-launch-debug="6">Hades Hit Arrows</button>
         </div>
       </div>
+
+      <!-- Live WebGL 2.0 Canvas -->
+      <div class="wasm-stage">
+        <canvas id="canvas" width="960" height="540" oncontextmenu="event.preventDefault()" tabindex="0"></canvas>
+        <div id="wasm-loading" class="wasm-loading">
+          <span>Loading TurtleFX WebAssembly Engine (C11 + raylib 5.5 + WebGL 2.0)…</span>
+        </div>
+      </div>
+      <div class="wasm-meta-bar">
+        <span id="wasm-hint" class="wasm-hint">Click canvas to focus · WASD/Arrows: Move · Space: 3-Hit Sword Slash · Shift: Dash · E: Cast</span>
+        <span id="wasm-status" class="status-ok">Initializing WASM…</span>
+      </div>
+
+      <!-- Live Logo Source Editor (runs directly in WASM C VM!) -->
+      <details class="wasm-editor-panel">
+        <summary>Edit &amp; Run Live Logo Source in WebAssembly (<code>Ctrl+Enter</code>)</summary>
+        <div class="editor-wrap wasm-editor-wrap">
+          <textarea id="wasm-editor" spellcheck="false" aria-label="Live Logo WASM code editor"></textarea>
+          <div class="editor-bar">
+            <span class="subtle-label">Edits run directly inside the compiled C11 Logo VM + WebGL 2.0 shaders.</span>
+            <div style="display:flex; gap:8px;">
+              <button id="btn-wasm-reset" class="btn small">Reset Example</button>
+              <button id="btn-wasm-run" class="btn primary small">Run in WASM (Ctrl+Enter)</button>
+            </div>
+          </div>
+        </div>
+      </details>
     </section>
 
     <!-- MISSION 1 -->
@@ -311,6 +354,6 @@ cmake --build build
   </footer>
 
   <script src="enhance.js"></script>
-  <script src="playground.js"></script>
+  <script src="wasm-studio.js"></script>
 </body>
 </html>

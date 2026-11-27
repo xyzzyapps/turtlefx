@@ -37,6 +37,44 @@ static uint64_t fnv1a_hash(const char *s) {
     return h;
 }
 
+#ifdef __EMSCRIPTEN__
+/* Translate desktop GLSL 330 shaders cleanly to WebGL 2.0 (GLSL ES 3.00) */
+static char *glsl_to_es3(const char *src) {
+    if (!src) return NULL;
+    const char *header =
+        "#version 300 es\n"
+        "precision highp float;\n"
+        "precision highp int;\n"
+        "precision highp sampler2D;\n";
+    const char *body = src;
+    while (*body == ' ' || *body == '\t' || *body == '\r' || *body == '\n') body++;
+    if (strncmp(body, "#version", 8) == 0) {
+        const char *nl = strchr(body, '\n');
+        body = nl ? (nl + 1) : (body + strlen(body));
+    }
+    size_t hlen = strlen(header);
+    size_t blen = strlen(body);
+    char *out = (char *)malloc(hlen + blen + 1);
+    if (!out) return NULL;
+    memcpy(out, header, hlen);
+    memcpy(out + hlen, body, blen + 1);
+    return out;
+}
+#endif
+
+static Shader load_shader_compat(const char *vs, const char *fs) {
+#ifdef __EMSCRIPTEN__
+    char *vs_es = glsl_to_es3(vs);
+    char *fs_es = glsl_to_es3(fs);
+    Shader sh = LoadShaderFromMemory(vs_es, fs_es);
+    free(vs_es);
+    free(fs_es);
+    return sh;
+#else
+    return LoadShaderFromMemory(vs, fs);
+#endif
+}
+
 static void ensure_custom_shader(LogoRenderer *r, const SceneIR *s, double time_sec) {
     if (!s->custom_shader_enabled) return;
 
@@ -52,7 +90,7 @@ static void ensure_custom_shader(LogoRenderer *r, const SceneIR *s, double time_
         r->custom_is_inline = true;
         r->custom_code_hash = h;
         r->custom_path[0] = '\0';
-        r->sh_custom = LoadShaderFromMemory(NULL, s->custom_shader_code);
+        r->sh_custom = load_shader_compat(NULL, s->custom_shader_code);
         return;
     }
 
@@ -74,8 +112,12 @@ static void ensure_custom_shader(LogoRenderer *r, const SceneIR *s, double time_
     r->custom_code_hash = 0;
     snprintf(r->custom_path, sizeof(r->custom_path), "%s", s->custom_shader_path);
     r->custom_mtime = mt;
-    if (mt != 0) {
-        r->sh_custom = LoadShader(NULL, s->custom_shader_path);
+    if (FileExists(s->custom_shader_path)) {
+        char *txt = LoadFileText(s->custom_shader_path);
+        if (txt) {
+            r->sh_custom = load_shader_compat(NULL, txt);
+            UnloadFileText(txt);
+        }
     }
 }
 
@@ -256,13 +298,13 @@ static Model *get_cached_model(LogoRenderer *r, const char *path) {
 
 void renderer_init(LogoRenderer *r) {
     memset(r, 0, sizeof(*r));
-    r->sh_2d            = LoadShaderFromMemory(NULL, FRAG_SCENE_2D);
-    r->sh_3d            = LoadShaderFromMemory(NULL, FRAG_SCENE_3D);
-    r->sh_bloom_extract = LoadShaderFromMemory(NULL, FRAG_BLOOM_EXTRACT);
-    r->sh_blur          = LoadShaderFromMemory(NULL, FRAG_BLUR);
-    r->sh_post          = LoadShaderFromMemory(NULL, FRAG_POST);
-    r->sh_billboard     = LoadShaderFromMemory(NULL, FRAG_BILLBOARD_CUTOUT);
-    r->sh_model         = LoadShaderFromMemory(VERT_MODEL_LIT, FRAG_MODEL_LIT);
+    r->sh_2d            = load_shader_compat(NULL, FRAG_SCENE_2D);
+    r->sh_3d            = load_shader_compat(NULL, FRAG_SCENE_3D);
+    r->sh_bloom_extract = load_shader_compat(NULL, FRAG_BLOOM_EXTRACT);
+    r->sh_blur          = load_shader_compat(NULL, FRAG_BLUR);
+    r->sh_post          = load_shader_compat(NULL, FRAG_POST);
+    r->sh_billboard     = load_shader_compat(NULL, FRAG_BILLBOARD_CUTOUT);
+    r->sh_model         = load_shader_compat(VERT_MODEL_LIT, FRAG_MODEL_LIT);
 
     Image white = GenImageColor(1, 1, WHITE);
     r->white_tex = LoadTextureFromImage(white);
