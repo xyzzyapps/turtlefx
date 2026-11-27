@@ -272,12 +272,14 @@ static void declare_var(LogoVM *vm, const char *name, LogoVal val, bool force_lo
 
 static void emit_prim2d(LogoVM *vm, Prim2D p) {
     if (vm->scene.prim2d_count < SCENE_MAX_2D_PRIMS) {
+        p.draw_seq = vm->scene.total_draw_ops++;
         vm->scene.prims2d[vm->scene.prim2d_count++] = p;
     }
 }
 
 static void emit_prim3d(LogoVM *vm, Prim3D p) {
     if (vm->scene.prim3d_count < SCENE_MAX_3D_PRIMS) {
+        p.draw_seq = vm->scene.total_draw_ops++;
         vm->scene.prims3d[vm->scene.prim3d_count++] = p;
     }
 }
@@ -1107,6 +1109,7 @@ static void exec_cmd(LogoVM *vm, Stmt *s) {
                 } else {
                     sp.r = sp.g = sp.b = sp.a = 1.0f;
                 }
+                sp.draw_seq = vm->scene.total_draw_ops++;
                 vm->scene.sprites[vm->scene.sprite_count++] = sp;
             }
         }
@@ -1133,6 +1136,7 @@ static void exec_cmd(LogoVM *vm, Stmt *s) {
                     md.r = vm->turtle.color[0]; md.g = vm->turtle.color[1];
                     md.b = vm->turtle.color[2]; md.a = vm->turtle.color[3];
                 }
+                md.draw_seq = vm->scene.total_draw_ops++;
                 vm->scene.models[vm->scene.model_count++] = md;
             }
         }
@@ -1700,6 +1704,7 @@ void logo_vm_run_frame(LogoVM *vm, double time, double dt, LogoHostInput input) 
         vm->scene.prim3d_count = 0;
         vm->scene.sprite_count = 0;
         vm->scene.model_count = 0;
+        vm->scene.total_draw_ops = 0;
     }
 
     if (vm->on_frame) {

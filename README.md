@@ -30,10 +30,12 @@ cmake --build build
 .\build\turtlefx.exe
 ```
 
-Run a specific `.logo` script or headless test suite:
+Run a specific `.logo` script, launch the **slow-motion visual turtle debugger** (`-debug`), or run the headless test suite:
 
 ```powershell
 .\build\turtlefx.exe examples\03_3d_crystal_tree.logo
+.\build\turtlefx.exe -debug examples\02_neon_2d.logo
+.\build\turtlefx.exe -debug --speed 0.1 examples\07_hades_courtyard.logo
 .\build\turtlefx.exe --verify
 ```
 
@@ -46,6 +48,8 @@ Run a specific `.logo` script or headless test suite:
 | `1` – `7` | Switch live between built-in examples (`Retro Arcade`, `Neon 2D`, `3D Crystal Tree`, `Retro 3D`, `Custom GLSL Shader`, `Actor Swarm`, `Hades Isometric 3D`) |
 | `WASD` / `Arrows` | Move (`01_retro_arcade`, `06_actor_swarm`, `07_hades_courtyard` isometric) |
 | `Space` / `Shift` / `E` | Fire / 3-Hit Sword Slash (`Space`), Fiery Dash (`Shift`), Bloodstone Cast (`E`) |
+| `F5` (or `-debug` flag) | Toggle **Slow-Motion Turtle Debugger** with live turtle reticle & analog/digital simulated clock |
+| `Tab` · `,` / `.` · `N` · `-` / `+` · `Backspace` | In Debug Mode: Pause/Resume clock, step 1 turtle op back/forward, step +1 frame, adjust speed, replay frame from step 0 |
 | `R` | Reload active `.logo` script manually (also auto hot-reloads on file save) |
 | `H` | Toggle HUD overlay |
 | `F12` / `P` | Save in-game screenshot (`screenshot_001.png`, ...) |

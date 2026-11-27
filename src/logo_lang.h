@@ -93,6 +93,7 @@ typedef struct {
     float r, g, b, a;
     float glow;
     int blend;      /* BlendModeKind */
+    int draw_seq;   /* Monotonic turtle draw order within frame (for -debug) */
 } Prim2D;
 
 typedef struct {
@@ -106,6 +107,7 @@ typedef struct {
     float mat_param;/* Glossiness or emissive strength */
     float smooth_k;
     int op_type;    /* Op3DType */
+    int draw_seq;   /* Monotonic turtle draw order within frame (for -debug) */
 } Prim3D;
 
 typedef struct {
@@ -117,6 +119,7 @@ typedef struct {
     int cols, rows, frame;
     bool flip_x;
     float r, g, b, a;
+    int draw_seq;   /* Monotonic turtle draw order within frame (for -debug) */
 } PrimSprite;
 
 typedef struct {
@@ -127,6 +130,7 @@ typedef struct {
     float scale;
     float r, g, b, a;
     bool wireframe;
+    int draw_seq;   /* Monotonic turtle draw order within frame (for -debug) */
 } PrimModel;
 
 typedef struct {
@@ -184,6 +188,8 @@ typedef struct {
 
     PrimModel models[SCENE_MAX_MODELS];
     int model_count;
+
+    int total_draw_ops; /* Total ordered draw commands emitted this frame */
 } SceneIR;
 
 /* ----------------------------------------------------------------------------

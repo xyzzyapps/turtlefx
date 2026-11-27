@@ -173,6 +173,291 @@ static const char *mode_name(RenderMode m) {
     return "?";
 }
 
+/* ============================================================================
+ *  Visual Slow-Motion Turtle Debugger (-debug / --debug / F5)
+ * ============================================================================ */
+
+typedef struct {
+    bool enabled;
+    bool paused;
+    double sim_time;      /* Simulated clock (seconds) */
+    double sim_scale;     /* Time scale multiplier (default 0.15x in -debug) */
+    int sim_frame;        /* Simulated frame counter */
+    double last_dt_sim;   /* Last simulated dt (seconds) */
+    double last_dt_real;  /* Last real wall-clock dt (seconds) */
+    double draw_step_f;   /* Fractional turtle primitive playback cursor */
+    double draw_rate;     /* Base turtle draw ops/second at 1.0x draw speed */
+} DebugState;
+
+typedef struct {
+    bool valid;
+    bool is_3d;
+    float x, y, z;
+    float angle_rad;
+    int active_seq;
+    int total_ops;
+    char label[96];
+} DebugCursorInfo;
+
+static void debug_reset_playback(DebugState *dbg) {
+    dbg->sim_time = 0.0;
+    dbg->sim_frame = 0;
+    dbg->draw_step_f = 0.0;
+}
+
+static void build_debug_scene_slice(const SceneIR *full, SceneIR *out, double step_f, DebugCursorInfo *cur) {
+    *out = *full;
+    memset(cur, 0, sizeof(*cur));
+    cur->total_ops = full->total_draw_ops;
+
+    if (full->total_draw_ops <= 0) {
+        snprintf(cur->label, sizeof(cur->label), "IDLE (0 draw ops)");
+        return;
+    }
+    if (step_f >= (double)full->total_draw_ops) {
+        cur->active_seq = full->total_draw_ops;
+        snprintf(cur->label, sizeof(cur->label), "COMPLETE (Backspace to replay)");
+        return;
+    }
+
+    if (step_f < 0.0) step_f = 0.0;
+    int active_seq = (int)floor(step_f);
+    float frac = (float)(step_f - floor(step_f));
+    if (frac < 0.03f) frac = 0.03f;
+    if (frac > 1.0f) frac = 1.0f;
+    cur->active_seq = active_seq + 1;
+
+    out->prim2d_count = 0;
+    out->prim3d_count = 0;
+    out->sprite_count = 0;
+    out->model_count  = 0;
+
+    for (int i = 0; i < full->prim2d_count; i++) {
+        Prim2D p = full->prims2d[i];
+        if (p.draw_seq > active_seq) continue;
+        if (p.draw_seq == active_seq) {
+            cur->valid = true;
+            cur->is_3d = false;
+            if (p.type == PRIM2D_SEGMENT) {
+                float nx = p.x0 + (p.x1 - p.x0) * frac;
+                float ny = p.y0 + (p.y1 - p.y0) * frac;
+                cur->angle_rad = atan2f(p.y1 - p.y0, p.x1 - p.x0);
+                p.x1 = nx;
+                p.y1 = ny;
+                cur->x = nx;
+                cur->y = ny;
+                snprintf(cur->label, sizeof(cur->label), "SEGMENT (%.0f,%.0f)->(%.0f,%.0f)", p.x0, p.y0, nx, ny);
+            } else if (p.type == PRIM2D_CIRCLE) {
+                p.radius *= (0.25f + 0.75f * frac);
+                cur->x = p.x0; cur->y = p.y0;
+                snprintf(cur->label, sizeof(cur->label), "DOT/CIRCLE r=%.1f @ (%.0f,%.0f)", p.radius, p.x0, p.y0);
+            } else if (p.type == PRIM2D_RECT) {
+                p.x2 *= (0.25f + 0.75f * frac);
+                p.y2 *= (0.25f + 0.75f * frac);
+                cur->x = p.x0; cur->y = p.y0;
+                snprintf(cur->label, sizeof(cur->label), "RECT %.0fx%.0f @ (%.0f,%.0f)", p.x2 * 2.0f, p.y2 * 2.0f, p.x0, p.y0);
+            } else if (p.type == PRIM2D_TRIANGLE) {
+                float cx = (p.x0 + p.x1 + p.x2) / 3.0f;
+                float cy = (p.y0 + p.y1 + p.y2) / 3.0f;
+                float sc = 0.25f + 0.75f * frac;
+                p.x0 = cx + (p.x0 - cx) * sc; p.y0 = cy + (p.y0 - cy) * sc;
+                p.x1 = cx + (p.x1 - cx) * sc; p.y1 = cy + (p.y1 - cy) * sc;
+                p.x2 = cx + (p.x2 - cx) * sc; p.y2 = cy + (p.y2 - cy) * sc;
+                cur->x = cx; cur->y = cy;
+                snprintf(cur->label, sizeof(cur->label), "FILL TRI @ (%.0f,%.0f)", cx, cy);
+            }
+        }
+        out->prims2d[out->prim2d_count++] = p;
+    }
+
+    for (int i = 0; i < full->prim3d_count; i++) {
+        Prim3D p = full->prims3d[i];
+        if (p.draw_seq > active_seq) continue;
+        if (p.draw_seq == active_seq) {
+            cur->valid = true;
+            cur->is_3d = true;
+            float sc = (p.op_type == OP3D_CARVE) ? 1.0f : (0.25f + 0.75f * frac);
+            cur->x = p.px; cur->y = p.py; cur->z = p.pz;
+            const char *op_tag = (p.op_type == OP3D_CARVE) ? "CARVE " :
+                                 (p.op_type == OP3D_SMOOTH_UNION ? "SMOOTH " : "");
+            if (p.type == PRIM3D_CAPSULE) {
+                float len = p.p0 * (0.08f + 0.92f * frac);
+                p.p0 = len;
+                cur->x = p.px + p.fx * len;
+                cur->y = p.py + p.fy * len;
+                cur->z = p.pz + p.fz * len;
+                snprintf(cur->label, sizeof(cur->label), "%sCAPSULE len=%.2f r=%.2f", op_tag, len, p.p1);
+            } else if (p.type == PRIM3D_SPHERE) {
+                p.p0 *= sc;
+                snprintf(cur->label, sizeof(cur->label), "%sSPHERE r=%.2f", op_tag, p.p0);
+            } else if (p.type == PRIM3D_BOX) {
+                p.p0 *= sc; p.p1 *= sc; p.p2 *= sc;
+                snprintf(cur->label, sizeof(cur->label), "%sBOX %.1fx%.1fx%.1f", op_tag, p.p0 * 2.0f, p.p1 * 2.0f, p.p2 * 2.0f);
+            } else if (p.type == PRIM3D_CYLINDER) {
+                p.p0 *= sc; p.p1 *= sc;
+                snprintf(cur->label, sizeof(cur->label), "%sCYLINDER r=%.2f h=%.2f", op_tag, p.p0, p.p1 * 2.0f);
+            } else if (p.type == PRIM3D_CONE) {
+                p.p0 *= sc; p.p1 *= sc;
+                snprintf(cur->label, sizeof(cur->label), "%sCONE r=%.2f h=%.2f", op_tag, p.p0, p.p1);
+            } else if (p.type == PRIM3D_TORUS) {
+                p.p0 *= sc; p.p1 *= sc;
+                snprintf(cur->label, sizeof(cur->label), "%sTORUS R=%.2f r=%.2f", op_tag, p.p0, p.p1);
+            }
+        }
+        out->prims3d[out->prim3d_count++] = p;
+    }
+
+    for (int i = 0; i < full->model_count; i++) {
+        PrimModel md = full->models[i];
+        if (md.draw_seq > active_seq) continue;
+        if (md.draw_seq == active_seq) {
+            md.scale *= (0.25f + 0.75f * frac);
+            cur->valid = true;
+            cur->is_3d = true;
+            cur->x = md.px; cur->y = md.py; cur->z = md.pz;
+            const char *base = strrchr(md.path, '/');
+            snprintf(cur->label, sizeof(cur->label), "MODEL %.40s", base ? (base + 1) : md.path);
+        }
+        out->models[out->model_count++] = md;
+    }
+
+    for (int i = 0; i < full->sprite_count; i++) {
+        PrimSprite sp = full->sprites[i];
+        if (sp.draw_seq > active_seq) continue;
+        if (sp.draw_seq == active_seq) {
+            sp.size *= (0.25f + 0.75f * frac);
+            cur->valid = true;
+            cur->is_3d = (full->mode == RENDER_MODE_3D);
+            cur->x = sp.x; cur->y = sp.y; cur->z = sp.z;
+            if (sp.inline_art) snprintf(cur->label, sizeof(cur->label), "SPRITE [inline pixel art]");
+            else {
+                const char *base = strrchr(sp.path, '/');
+                snprintf(cur->label, sizeof(cur->label), "SPRITE %.40s", base ? (base + 1) : sp.path);
+            }
+        }
+        out->sprites[out->sprite_count++] = sp;
+    }
+}
+
+static void draw_debug_overlays(const SceneIR *full, const DebugState *dbg,
+                                const DebugCursorInfo *cur, int view_w, int view_h) {
+    /* 1. Live Turtle Position Marker / Reticle on the Canvas */
+    if (cur->valid) {
+        float sx = 0.0f, sy = 0.0f;
+        bool on_screen = true;
+        if (cur->is_3d) {
+            Camera3D cam = {0};
+            cam.position   = (Vector3){full->cam_pos[0], full->cam_pos[1], full->cam_pos[2]};
+            cam.target     = (Vector3){full->cam_look[0], full->cam_look[1], full->cam_look[2]};
+            cam.up         = (Vector3){0.0f, 1.0f, 0.0f};
+            cam.fovy       = full->cam_fov;
+            cam.projection = CAMERA_PERSPECTIVE;
+            Vector2 sp = GetWorldToScreenEx((Vector3){cur->x, cur->y, cur->z}, cam, view_w, view_h);
+            sx = sp.x;
+            sy = sp.y;
+            on_screen = (sx >= -40 && sx <= view_w + 40 && sy >= -40 && sy <= view_h + 40);
+        } else if (full->mode == RENDER_MODE_RETRO) {
+            sx = (cur->x / (float)(full->retro_w > 0 ? full->retro_w : 320)) * (float)view_w;
+            sy = (cur->y / (float)(full->retro_h > 0 ? full->retro_h : 180)) * (float)view_h;
+        } else {
+            sx = (float)view_w * 0.5f + cur->x;
+            sy = (float)view_h * 0.5f - cur->y;
+        }
+
+        if (on_screen) {
+            Color accent = (Color){46, 230, 138, 255};
+            DrawCircleLines((int)sx, (int)sy, 11.0f, accent);
+            DrawCircle((int)sx, (int)sy, 3.5f, (Color){255, 240, 180, 255});
+            DrawLine((int)sx - 16, (int)sy, (int)sx - 6, (int)sy, accent);
+            DrawLine((int)sx + 6,  (int)sy, (int)sx + 16, (int)sy, accent);
+            DrawLine((int)sx, (int)sy - 16, (int)sx, (int)sy - 6, accent);
+            DrawLine((int)sx, (int)sy + 6,  (int)sx, (int)sy + 16, accent);
+
+            char tag[32];
+            snprintf(tag, sizeof(tag), "#%d", cur->active_seq);
+            DrawRectangle((int)sx + 14, (int)sy - 18, 44, 18, (Color){10, 12, 18, 215});
+            DrawRectangleLines((int)sx + 14, (int)sy - 18, 44, 18, accent);
+            DrawText(tag, (int)sx + 19, (int)sy - 15, 12, accent);
+        }
+    }
+
+    /* 2. Bottom-Right Simulated Clock & Turtle Step Inspector Panel */
+    int pw = 456;
+    int ph = 152;
+    int px = view_w - pw - 14;
+    int py = view_h - ph - 14;
+    if (px < 12) px = 12;
+    if (py < 74) py = 74;
+
+    DrawRectangle(px, py, pw, ph, (Color){12, 13, 18, 228});
+    DrawRectangleLines(px, py, pw, ph, (Color){46, 230, 138, 210});
+
+    /* Header row + live state pill */
+    DrawText("TURTLE DEBUGGER", px + 14, py + 11, 14, (Color){46, 230, 138, 255});
+    Color pill_col = dbg->paused ? (Color){242, 184, 75, 255} : (Color){46, 230, 138, 255};
+    char status_txt[48];
+    if (dbg->paused) snprintf(status_txt, sizeof(status_txt), "PAUSED");
+    else             snprintf(status_txt, sizeof(status_txt), "SLOW %.2fx", dbg->sim_scale);
+    DrawRectangle(px + 162, py + 9, 96, 18, (Color){24, 28, 36, 255});
+    DrawRectangleLines(px + 162, py + 9, 96, 18, pill_col);
+    DrawText(status_txt, px + 170, py + 12, 12, pill_col);
+
+    /* Digital Simulated Clock */
+    int mins = (int)(dbg->sim_time / 60.0);
+    double secs = fmod(dbg->sim_time, 60.0);
+    char clk_line[96];
+    snprintf(clk_line, sizeof(clk_line), "SIM %02d:%06.3fs  |  FRAME #%d", mins, secs, dbg->sim_frame);
+    DrawText(clk_line, px + 14, py + 34, 15, (Color){240, 244, 250, 255});
+
+    char dt_line[96];
+    snprintf(dt_line, sizeof(dt_line), "dt_sim: %.2fms   (wall: %.1fms)   rate: %.1f ops/s",
+             dbg->last_dt_sim * 1000.0, dbg->last_dt_real * 1000.0, dbg->draw_rate);
+    DrawText(dt_line, px + 14, py + 55, 12, (Color){155, 170, 195, 255});
+
+    /* Turtle step counter + progress bar */
+    int shown = cur->active_seq;
+    int total = cur->total_ops;
+    char step_line[96];
+    snprintf(step_line, sizeof(step_line), "STEP %d / %d  |  %.42s", shown, total, cur->label);
+    DrawText(step_line, px + 14, py + 76, 12, (Color){226, 234, 245, 255});
+
+    int bar_x = px + 14, bar_y = py + 96, bar_w = 326, bar_h = 10;
+    DrawRectangle(bar_x, bar_y, bar_w, bar_h, (Color){26, 30, 40, 255});
+    float prog = (total > 0) ? (float)fmin(dbg->draw_step_f / (double)total, 1.0) : 1.0f;
+    DrawRectangle(bar_x, bar_y, (int)(bar_w * prog), bar_h, (Color){46, 230, 138, 235});
+    DrawRectangleLines(bar_x, bar_y, bar_w, bar_h, (Color){70, 88, 110, 200});
+
+    /* Controls legend */
+    DrawText("[Tab] Pause  [,/.] Step Op  [N] +1 Frame", px + 14, py + 114, 11, (Color){145, 160, 185, 255});
+    DrawText("[-/+] Speed  [Bksp] Replay  [F5] Exit Debug", px + 14, py + 130, 11, (Color){145, 160, 185, 255});
+
+    /* Analog Simulated Clock Dial (Right Side of Panel) */
+    float cx = (float)(px + pw - 56);
+    float cy = (float)(py + 62);
+    float r  = 40.0f;
+    DrawCircle((int)cx, (int)cy, r, (Color){18, 20, 28, 255});
+    DrawCircleLines((int)cx, (int)cy, r, (Color){95, 115, 140, 220});
+    DrawCircleLines((int)cx, (int)cy, r - 2.0f, (Color){46, 230, 138, 110});
+
+    for (int t = 0; t < 12; t++) {
+        float a = ((float)t / 12.0f) * 6.2831853f - 1.5707963f;
+        float r0 = (t % 3 == 0) ? (r - 9.0f) : (r - 5.0f);
+        DrawLineEx((Vector2){cx + cosf(a) * r0, cy + sinf(a) * r0},
+                   (Vector2){cx + cosf(a) * (r - 2.0f), cy + sinf(a) * (r - 2.0f)},
+                   (t % 3 == 0) ? 2.0f : 1.0f, (Color){140, 155, 180, 220});
+    }
+
+    /* Emerald 60-second hand + Amber 1-second sweep sub-hand */
+    float sec_a = (float)(fmod(dbg->sim_time, 60.0) / 60.0) * 6.2831853f - 1.5707963f;
+    float sub_a = (float)(fmod(dbg->sim_time, 1.0)) * 6.2831853f - 1.5707963f;
+    DrawLineEx((Vector2){cx, cy}, (Vector2){cx + cosf(sec_a) * (r - 12.0f), cy + sinf(sec_a) * (r - 12.0f)},
+               2.4f, (Color){46, 230, 138, 255});
+    DrawLineEx((Vector2){cx, cy}, (Vector2){cx + cosf(sub_a) * (r - 7.0f), cy + sinf(sub_a) * (r - 7.0f)},
+               1.5f, (Color){242, 184, 75, 255});
+    DrawCircle((int)cx, (int)cy, 3.5f, WHITE);
+    DrawText("SIM CLK", (int)cx - 24, (int)cy + 46, 11, (Color){155, 175, 200, 255});
+}
+
 static bool test_space_down(const char *name) {
     return name && strcmp(name, "space") == 0;
 }
@@ -350,6 +635,39 @@ static int run_render_test(void) {
         session_free(&sess);
     }
 
+    /* Also render visual -debug mode previews (2D mid-stroke + 3D mid-build) */
+    {
+        SceneIR *dbg_slice = (SceneIR *)malloc(sizeof(SceneIR));
+        const char *dbg_scripts[2] = { BUILTIN_EXAMPLES[1], BUILTIN_EXAMPLES[2] };
+        const char *dbg_outs[2]    = { "build/preview_debug_2d.png", "build/preview_debug_3d.png" };
+        const double dbg_steps[2]  = { 33.55, 22.60 };
+        for (int d = 0; d < 2; d++) {
+            ScriptSession ds = {0};
+            if (session_load(&ds, dbg_scripts[d], input)) {
+                logo_vm_run_frame(ds.vm, 2.35, 0.0025, input);
+                DebugState dst = {
+                    .enabled = true, .paused = false,
+                    .sim_time = 2.35, .sim_scale = 0.15, .sim_frame = 141,
+                    .last_dt_sim = 0.0025, .last_dt_real = 0.0167,
+                    .draw_step_f = dbg_steps[d], .draw_rate = 6.0
+                };
+                DebugCursorInfo cur = {0};
+                build_debug_scene_slice(&ds.vm->scene, dbg_slice, dst.draw_step_f, &cur);
+                renderer_draw_to(&renderer, dbg_slice, 960, 540, dst.sim_time, &out_rt);
+                BeginTextureMode(out_rt);
+                    draw_debug_overlays(&ds.vm->scene, &dst, &cur, 960, 540);
+                EndTextureMode();
+                Image dimg = LoadImageFromTexture(out_rt.texture);
+                ImageFlipVertical(&dimg);
+                ExportImage(dimg, dbg_outs[d]);
+                UnloadImage(dimg);
+                printf("[RENDERED] %s (-debug) -> %s\n", dbg_scripts[d], dbg_outs[d]);
+                session_free(&ds);
+            }
+        }
+        free(dbg_slice);
+    }
+
     UnloadRenderTexture(out_rt);
 
     renderer_shutdown(&renderer);
@@ -489,10 +807,25 @@ int main(int argc, char **argv) {
         return run_make_media();
     }
 
-    const char *initial_script = (argc >= 2) ? argv[1] : BUILTIN_EXAMPLES[0];
+    bool start_debug = false;
+    double initial_sim_scale = 0.15;
+    const char *initial_script = BUILTIN_EXAMPLES[0];
+    for (int i = 1; i < argc; i++) {
+        if (strcmp(argv[i], "-debug") == 0 || strcmp(argv[i], "--debug") == 0) {
+            start_debug = true;
+        } else if ((strcmp(argv[i], "--speed") == 0 || strcmp(argv[i], "-speed") == 0) && i + 1 < argc) {
+            initial_sim_scale = atof(argv[++i]);
+            if (initial_sim_scale < 0.01) initial_sim_scale = 0.01;
+            if (initial_sim_scale > 4.0)  initial_sim_scale = 4.0;
+        } else if (argv[i][0] != '-') {
+            initial_script = argv[i];
+        }
+    }
 
     SetConfigFlags(FLAG_WINDOW_RESIZABLE | FLAG_VSYNC_HINT);
-    InitWindow(1280, 720, "TurtleFX — Modern Logo Shader Engine (C + raylib)");
+    InitWindow(1280, 720, start_debug
+        ? "TurtleFX [DEBUG] — Slow Turtle & Simulated Clock"
+        : "TurtleFX — Modern Logo Shader Engine (C + raylib)");
     InitAudioDevice();
     SetTargetFPS(60);
 
@@ -512,78 +845,182 @@ int main(int argc, char **argv) {
     ScriptSession sess = {0};
     session_load(&sess, initial_script, input);
 
+    SceneIR *debug_scene = (SceneIR *)malloc(sizeof(SceneIR));
+    DebugState dbg = {
+        .enabled = start_debug,
+        .paused = false,
+        .sim_time = 0.0,
+        .sim_scale = initial_sim_scale,
+        .sim_frame = 0,
+        .last_dt_sim = 0.0,
+        .last_dt_real = 0.016,
+        .draw_step_f = 0.0,
+        .draw_rate = 6.0
+    };
+    DebugCursorInfo dbg_cur = {0};
+
     bool show_hud = true;
     double watch_timer = 0.0;
     int screenshot_seq = 1;
     double screenshot_msg_timer = 0.0;
     char screenshot_msg[128] = {0};
+    bool first_debug_frame = true;
 
     while (!WindowShouldClose()) {
-        float dt = GetFrameTime();
-        if (dt > 0.05f) dt = 0.05f;
-        if (screenshot_msg_timer > 0.0) screenshot_msg_timer -= dt;
+        float dt_real = GetFrameTime();
+        if (dt_real > 0.05f) dt_real = 0.05f;
+        if (screenshot_msg_timer > 0.0) screenshot_msg_timer -= dt_real;
 
         input.view_w = GetScreenWidth();
         input.view_h = GetScreenHeight();
         input.mouse_x = (float)GetMouseX();
         input.mouse_y = (float)GetMouseY();
 
-        /* Built-in example switching (1-7), manual reload (R), HUD toggle (H), Screenshot (F12/P) */
-        if (IsKeyPressed(KEY_ONE))   session_load(&sess, BUILTIN_EXAMPLES[0], input);
-        if (IsKeyPressed(KEY_TWO))   session_load(&sess, BUILTIN_EXAMPLES[1], input);
-        if (IsKeyPressed(KEY_THREE)) session_load(&sess, BUILTIN_EXAMPLES[2], input);
-        if (IsKeyPressed(KEY_FOUR))  session_load(&sess, BUILTIN_EXAMPLES[3], input);
-        if (IsKeyPressed(KEY_FIVE))  session_load(&sess, BUILTIN_EXAMPLES[4], input);
-        if (IsKeyPressed(KEY_SIX))   session_load(&sess, BUILTIN_EXAMPLES[5], input);
-        if (IsKeyPressed(KEY_SEVEN)) session_load(&sess, BUILTIN_EXAMPLES[6], input);
-        if (IsKeyPressed(KEY_R))     session_load(&sess, sess.path, input);
+        /* Built-in example switching (1-7), manual reload (R), HUD toggle (H), Debug (F5), Shot (F12/P) */
+        bool reloaded = false;
+        if (IsKeyPressed(KEY_ONE))   { session_load(&sess, BUILTIN_EXAMPLES[0], input); reloaded = true; }
+        if (IsKeyPressed(KEY_TWO))   { session_load(&sess, BUILTIN_EXAMPLES[1], input); reloaded = true; }
+        if (IsKeyPressed(KEY_THREE)) { session_load(&sess, BUILTIN_EXAMPLES[2], input); reloaded = true; }
+        if (IsKeyPressed(KEY_FOUR))  { session_load(&sess, BUILTIN_EXAMPLES[3], input); reloaded = true; }
+        if (IsKeyPressed(KEY_FIVE))  { session_load(&sess, BUILTIN_EXAMPLES[4], input); reloaded = true; }
+        if (IsKeyPressed(KEY_SIX))   { session_load(&sess, BUILTIN_EXAMPLES[5], input); reloaded = true; }
+        if (IsKeyPressed(KEY_SEVEN)) { session_load(&sess, BUILTIN_EXAMPLES[6], input); reloaded = true; }
+        if (IsKeyPressed(KEY_R))     { session_load(&sess, sess.path, input);           reloaded = true; }
         if (IsKeyPressed(KEY_H))     show_hud = !show_hud;
+        if (IsKeyPressed(KEY_F5)) {
+            dbg.enabled = !dbg.enabled;
+            if (dbg.enabled) {
+                dbg.paused = false;
+                dbg.sim_time = sess.elapsed;
+                dbg.draw_step_f = 0.0;
+                first_debug_frame = true;
+            }
+        }
         bool want_screenshot = IsKeyPressed(KEY_F12) || IsKeyPressed(KEY_P);
 
         /* Hot-reload watched .logo file on save */
-        watch_timer += dt;
+        watch_timer += dt_real;
         if (watch_timer >= 0.3) {
             watch_timer = 0.0;
             time_t mt = file_mtime(sess.path);
             if (mt != 0 && mt != sess.mtime) {
                 session_load(&sess, sess.path, input);
+                reloaded = true;
+            }
+        }
+        if (reloaded) {
+            debug_reset_playback(&dbg);
+            first_debug_frame = true;
+        }
+
+        /* Interactive Debug Mode Controls */
+        bool step_one_frame = false;
+        if (dbg.enabled) {
+            if (IsKeyPressed(KEY_TAB)) dbg.paused = !dbg.paused;
+            if (IsKeyPressed(KEY_BACKSPACE)) {
+                dbg.draw_step_f = 0.0;
+                dbg.paused = false;
+            }
+            if (IsKeyPressed(KEY_EQUAL) || IsKeyPressed(KEY_KP_ADD) || IsKeyPressed(KEY_RIGHT_BRACKET)) {
+                dbg.sim_scale = fmin(dbg.sim_scale * 1.5, 2.0);
+                dbg.draw_rate = fmin(dbg.draw_rate * 1.4, 60.0);
+            }
+            if (IsKeyPressed(KEY_MINUS) || IsKeyPressed(KEY_KP_SUBTRACT) || IsKeyPressed(KEY_LEFT_BRACKET)) {
+                dbg.sim_scale = fmax(dbg.sim_scale / 1.5, 0.02);
+                dbg.draw_rate = fmax(dbg.draw_rate / 1.4, 0.5);
+            }
+            if (IsKeyPressed(KEY_PERIOD)) {
+                dbg.paused = true;
+                dbg.draw_step_f = floor(dbg.draw_step_f) + 1.0;
+            }
+            if (IsKeyPressed(KEY_COMMA)) {
+                dbg.paused = true;
+                dbg.draw_step_f = fmax(0.0, floor(dbg.draw_step_f) - 1.0);
+            }
+            if (IsKeyPressed(KEY_N)) {
+                dbg.paused = true;
+                step_one_frame = true;
             }
         }
 
-        sess.elapsed += dt;
+        double run_dt = dt_real;
+        bool should_step_vm = true;
+        if (dbg.enabled) {
+            dbg.last_dt_real = dt_real;
+            if (step_one_frame) {
+                run_dt = 1.0 / 60.0;
+                dbg.sim_time += run_dt;
+                dbg.sim_frame++;
+                dbg.last_dt_sim = run_dt;
+                sess.elapsed = dbg.sim_time;
+            } else if (!dbg.paused) {
+                run_dt = dt_real * dbg.sim_scale;
+                dbg.sim_time += run_dt;
+                dbg.sim_frame++;
+                dbg.last_dt_sim = run_dt;
+                sess.elapsed = dbg.sim_time;
+                dbg.draw_step_f += dt_real * dbg.draw_rate;
+            } else {
+                dbg.last_dt_sim = 0.0;
+                should_step_vm = first_debug_frame;
+                run_dt = 0.0;
+            }
+            first_debug_frame = false;
+        } else {
+            sess.elapsed += dt_real;
+            dbg.sim_time = sess.elapsed;
+            dbg.sim_frame++;
+        }
+
         bool has_err = (sess.load_err[0] != '\0') || !sess.vm || sess.vm->has_error;
-        if (!has_err) {
-            logo_vm_run_frame(sess.vm, sess.elapsed, dt, input);
+        if (!has_err && should_step_vm) {
+            logo_vm_run_frame(sess.vm, sess.elapsed, run_dt, input);
             if (sess.vm->has_error) {
                 snprintf(sess.load_err, sizeof(sess.load_err), "%s", sess.vm->error);
                 has_err = true;
             }
         }
 
+        const SceneIR *scene_to_draw = NULL;
+        if (!has_err) {
+            if (dbg.enabled && debug_scene) {
+                if (dbg.draw_step_f > (double)sess.vm->scene.total_draw_ops) {
+                    dbg.draw_step_f = (double)sess.vm->scene.total_draw_ops;
+                }
+                build_debug_scene_slice(&sess.vm->scene, debug_scene, dbg.draw_step_f, &dbg_cur);
+                scene_to_draw = debug_scene;
+            } else {
+                scene_to_draw = &sess.vm->scene;
+            }
+        }
+
         BeginDrawing();
             ClearBackground((Color){12, 14, 22, 255});
 
-            if (!has_err) {
-                renderer_draw(&renderer, &sess.vm->scene, input.view_w, input.view_h, sess.elapsed);
+            if (!has_err && scene_to_draw) {
+                renderer_draw(&renderer, scene_to_draw, input.view_w, input.view_h, sess.elapsed);
+                if (dbg.enabled) {
+                    draw_debug_overlays(&sess.vm->scene, &dbg, &dbg_cur, input.view_w, input.view_h);
+                }
             } else {
                 DrawRectangle(40, 80, input.view_w - 80, 120, (Color){60, 16, 24, 230});
                 DrawRectangleLines(40, 80, input.view_w - 80, 120, (Color){240, 80, 96, 255});
                 DrawText("LOGO SCRIPT ERROR", 60, 98, 22, (Color){255, 130, 140, 255});
                 DrawText(sess.load_err, 60, 132, 18, WHITE);
-                DrawText("Fix the script and save to hot-reload (or press 1-6).", 60, 164, 15, LIGHTGRAY);
+                DrawText("Fix the script and save to hot-reload (or press 1-7).", 60, 164, 15, LIGHTGRAY);
             }
 
             if (show_hud && sess.vm) {
                 const SceneIR *sc = &sess.vm->scene;
                 int prims = (sc->mode == RENDER_MODE_3D) ? sc->prim3d_count : sc->prim2d_count;
-                DrawRectangle(12, 12, 980, 56, (Color){8, 10, 18, 195});
-                DrawRectangleLines(12, 12, 980, 56, (Color){70, 90, 130, 180});
+                DrawRectangle(12, 12, 1020, 56, (Color){8, 10, 18, 195});
+                DrawRectangleLines(12, 12, 1020, 56, (Color){70, 90, 130, 180});
 
                 char line1[256];
-                snprintf(line1, sizeof(line1), "TurtleFX  |  %.120s  |  Mode: %s  |  Prims: %d  |  %d FPS",
-                         sess.path, mode_name(sc->mode), prims, GetFPS());
+                snprintf(line1, sizeof(line1), "TurtleFX%s  |  %.110s  |  Mode: %s  |  Prims: %d  |  %d FPS",
+                         dbg.enabled ? " [DEBUG]" : "", sess.path, mode_name(sc->mode), prims, GetFPS());
                 DrawText(line1, 24, 20, 16, (Color){230, 240, 255, 255});
-                DrawText("[1] Retro [2] 2D [3] 3D [4] Retro3D [5] Shader [6] Actors [7] Hades Iso  [R] Reload [H] HUD [F12] Shot",
+                DrawText("[1] Retro [2] 2D [3] 3D [4] Retro3D [5] Shader [6] Actors [7] Hades Iso  [F5] Debug [R] Reload [H] HUD [F12] Shot",
                          24, 44, 13, (Color){155, 175, 210, 255});
             }
 
@@ -603,6 +1040,7 @@ int main(int argc, char **argv) {
         }
     }
 
+    free(debug_scene);
     session_free(&sess);
     host_unload_sounds();
     renderer_shutdown(&renderer);

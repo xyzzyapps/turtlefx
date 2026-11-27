@@ -1216,6 +1216,24 @@ end</code></pre>
         </div>
 
         <div class="note-block">
+          <h3>Visual Slow-Motion Turtle Debugger (<code>-debug</code> or <code>F5</code>)</h3>
+          <p>
+            Want to watch your turtle draw every line, 3D branch, `.obj` model, and sprite <strong>in slow motion</strong> with a live
+            <strong>simulated clock</strong> (analog dial + digital millisecond readout)? Launch with <code>-debug</code> (or press <code>F5</code> anytime while running):
+          </p>
+          <pre><code data-lang="sh">.\build\turtlefx.exe -debug examples\03_3d_crystal_tree.logo
+.\build\turtlefx.exe -debug --speed 0.1 examples\02_neon_2d.logo</code></pre>
+          <p style="margin-top:0.75rem;">
+            <strong>Debug hotkeys:</strong>
+            <code>Tab</code> pauses/resumes the simulated clock ·
+            <code>,</code> / <code>.</code> steps 1 turtle draw operation backward/forward ·
+            <code>N</code> advances +1 simulated frame ·
+            <code>-</code> / <code>+</code> adjusts slow-mo speed ·
+            <code>Backspace</code> replays the current frame's drawing from step 0.
+          </p>
+        </div>
+
+        <div class="note-block">
           <h3>Explore the C Source Files on GitHub</h3>
           <ul>
             <li><a href="https://github.com/xyzzyapps/turtlefx/blob/main/src/logo_parser.c" target="_blank" rel="noopener"><code>src/logo_parser.c</code></a> — Reads your <code>.logo</code> text and checks syntax.</li>
